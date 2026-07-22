@@ -227,36 +227,41 @@ func (a *App) buildStatsText() string {
 	b.WriteString(fmt.Sprintf(
 		"[white::b]Streaming Completed: [lime]%d  "+
 			"[white]|  Total: [lime]%s  "+
+			"[white]|  In: [lime]%s  "+
 			"[white]|  Out: [lime]%s  "+
 			"[white]|  Cache Rd: [lime]%s  "+
 			"[white]|  Cache Cr: [lime]%s",
 		tt.Requests,
 		fmtDuration(tt.TotalLatency),
+		abbreviate(tt.TotalInputTokens),
 		abbreviate(tt.TotalOutputTokens),
 		abbreviate(tt.TotalCacheReadTokens),
 		abbreviate(tt.TotalCacheCreateTokens),
 	))
 	b.WriteByte('\n')
 
-	// Line 2: OutSpeed.
+	// Line 2: OutSpeed with band colours for Current and Avg.
 	b.WriteString(fmt.Sprintf(
-		"[white::b]OutSpeed: Avg: [lime]%.1f/s  "+
+		"[white::b]OutSpeed: Current: [%s]%.1f/s  "+
+			"[white]|  Avg: [%s]%.1f/s  "+
 			"[white]|  Max: [lime]%.1f/s  "+
 			"[white]|  Min: [lime]%.1f/s",
-		tt.AvgOutSpeed(),
+		speedTag(tt.CurrentOutSpeed), tt.CurrentOutSpeed,
+		speedTag(tt.AvgOutSpeed()), tt.AvgOutSpeed(),
 		tt.MaxOutSpeed,
 		tt.MinOutSpeed,
 	))
 	b.WriteByte('\n')
 
-	// Line 3: averages.
+	// Line 3: averages and cache hit rate.
+	ch := cacheHitRate(tt.TotalCacheReadTokens, tt.TotalCacheCreateTokens)
 	b.WriteString(fmt.Sprintf(
 		"[white::b]Avg Latency: [lime]%s  "+
 			"[white]|  Avg Out/Req: [lime]%s  "+
-			"[white]|  Total Input: [lime]%s",
+			"[white]|  Cache Hit: [%s]%.1f%%",
 		fmtDuration(tt.AvgLatency()),
 		abbreviate(int64(float64(tt.TotalOutputTokens)/float64(tt.Requests))),
-		abbreviate(tt.TotalInputTokens),
+		cacheHitTag(ch), ch,
 	))
 	b.WriteByte('\n')
 
@@ -290,6 +295,8 @@ func (a *App) showFinalSummary() {
 		wDur   = 11
 		wNum   = 12
 		wAbbr  = 10
+		wPct   = 9
+		wSpd   = 10
 	)
 
 	var b strings.Builder
@@ -298,47 +305,55 @@ func (a *App) showFinalSummary() {
 	}
 
 	b.WriteString("\n")
-	line("[white::b]─────────────────────────────────────────────────────────────────────\n")
+	line("[white::b]─────────────────────────────────────────────────────────────────────────────────────\n")
 	line("[white::b]  Streaming Completed Summary (by model)\n\n")
-	line("  [cyan::b]%-*s[white::b] %*s %*s %*s %*s %*s %*s %*s %*s\n",
+	line("  [cyan::b]%-*s[white::b] %*s %*s %*s %*s %*s %*s %*s %*s %*s %*s\n",
 		wModel, "Model",
 		wReq, "Req",
 		wDur, "Total",
 		wDur, "Avg",
-		wDur, "Min",
-		wDur, "Max",
 		wNum, "OutTok",
 		wAbbr, "CacheRd",
 		wAbbr, "CacheCr",
+		wPct, "CacheHit",
+		wSpd, "OutSpd∅",
+		wSpd, "OutSpd↑",
+		wSpd, "OutSpd↓",
 	)
-	line("  [gray::d]%s\n", strings.Repeat("─", 130))
+	line("  [gray::d]%s\n", strings.Repeat("─", 140))
 
 	for _, m := range models {
 		s := a.agg.ForModel(m)
-		line("  [yellow]%-*s[white] %*d %*s %*s %*s %*s %*d %*s %*s\n",
+		ch := cacheHitRate(s.TotalCacheReadTokens, s.TotalCacheCreateTokens)
+		line("  [yellow]%-*s[white] %*d %*s %*s %*d %*s %*s %*s %*s %*s %*s\n",
 			wModel, truncate(m, wModel),
 			wReq, s.Requests,
 			wDur, fmtDuration(s.TotalLatency),
 			wDur, fmtDuration(s.AvgLatency()),
-			wDur, fmtDuration(s.MinLatency),
-			wDur, fmtDuration(s.MaxLatency),
 			wNum, s.TotalOutputTokens,
 			wAbbr, abbreviate(s.TotalCacheReadTokens),
 			wAbbr, abbreviate(s.TotalCacheCreateTokens),
+			wPct, fmtPct(ch),
+			wSpd, fmtSpeed(s.AvgOutSpeed()),
+			wSpd, fmtSpeed(s.MaxOutSpeed),
+			wSpd, fmtSpeed(s.MinOutSpeed),
 		)
 	}
 
-	line("  [gray::d]%s\n", strings.Repeat("─", 130))
-	line("  [yellow]%-*s[white] %*d %*s %*s %*s %*s %*d %*s %*s\n",
+	line("  [gray::d]%s\n", strings.Repeat("─", 140))
+	ch := cacheHitRate(tt.TotalCacheReadTokens, tt.TotalCacheCreateTokens)
+	line("  [yellow]%-*s[white] %*d %*s %*s %*d %*s %*s %*s %*s %*s %*s\n",
 		wModel, "TOTAL",
 		wReq, tt.Requests,
 		wDur, fmtDuration(tt.TotalLatency),
 		wDur, fmtDuration(tt.AvgLatency()),
-		wDur, fmtDuration(tt.MinLatency),
-		wDur, fmtDuration(tt.MaxLatency),
 		wNum, tt.TotalOutputTokens,
 		wAbbr, abbreviate(tt.TotalCacheReadTokens),
 		wAbbr, abbreviate(tt.TotalCacheCreateTokens),
+		wPct, fmtPct(ch),
+		wSpd, fmtSpeed(tt.AvgOutSpeed()),
+		wSpd, fmtSpeed(tt.MaxOutSpeed),
+		wSpd, fmtSpeed(tt.MinOutSpeed),
 	)
 
 	fmt.Fprint(a.logView, tview.Escape(b.String()))
@@ -382,6 +397,16 @@ func abbreviate(n int64) string {
 	}
 }
 
+// fmtSpeed formats an OutSpeed value (tokens/s) for table display.
+func fmtSpeed(speed float64) string {
+	return fmt.Sprintf("%.1f/s", speed)
+}
+
+// fmtPct formats a percentage value for table display.
+func fmtPct(pct float64) string {
+	return fmt.Sprintf("%.1f%%", pct)
+}
+
 // tviewModelTag returns a tview colour tag for a model name, deterministically
 // chosen from a palette that mirrors output.hashPalette.  The colours are
 // distinct and work well on a dark-cyan background.
@@ -393,4 +418,45 @@ func tviewModelTag(model string) string {
 	h := fnv.New32a()
 	h.Write([]byte(model))
 	return palette[h.Sum32()%uint32(len(palette))]
+}
+
+// speedTag returns a tview colour tag for the given OutSpeed value using a
+// 4-band scheme: ≤20 red, ≤40 orange, ≤60 yellow, >60 green.
+func speedTag(speed float64) string {
+	switch {
+	case speed <= 20:
+		return "red"
+	case speed <= 40:
+		return "#ff8700" // orange
+	case speed <= 60:
+		return "yellow"
+	default:
+		return "lime"
+	}
+}
+
+// cacheHitRate returns the cache hit percentage:
+//
+//	cacheRd / (cacheRd + cacheCr) * 100
+func cacheHitRate(cacheRd, cacheCr int64) float64 {
+	total := cacheRd + cacheCr
+	if total == 0 {
+		return 0
+	}
+	return float64(cacheRd) / float64(total) * 100
+}
+
+// cacheHitTag returns a tview colour tag for a cache hit percentage using a
+// 4-band scheme: ≤80 red, ≤90 orange, ≤95 yellow, >95 green.
+func cacheHitTag(pct float64) string {
+	switch {
+	case pct <= 80:
+		return "red"
+	case pct <= 90:
+		return "#ff8700"
+	case pct <= 95:
+		return "yellow"
+	default:
+		return "lime"
+	}
 }

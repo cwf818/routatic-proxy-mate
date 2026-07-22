@@ -194,6 +194,8 @@ func WriteSummary(a *stats.Aggregator, noColor bool) {
 		wDur   = 11
 		wNum   = 12
 		wAbbr  = 10
+		wPct   = 9
+		wSpd   = 10
 	)
 
 	fmt.Println()
@@ -207,15 +209,17 @@ func WriteSummary(a *stats.Aggregator, noColor bool) {
 	sb.WriteString(header("Req", wReq))
 	sb.WriteString(header("Total", wDur))
 	sb.WriteString(header("Avg", wDur))
-	sb.WriteString(header("Min", wDur))
-	sb.WriteString(header("Max", wDur))
 	sb.WriteString(header("OutTok", wNum))
 	sb.WriteString(header("CacheRd", wAbbr))
 	sb.WriteString(header("CacheCr", wAbbr))
+	sb.WriteString(header("CacheHit", wPct))
+	sb.WriteString(header("OutSpd∅", wSpd))
+	sb.WriteString(header("OutSpd↑", wSpd))
+	sb.WriteString(header("OutSpd↓", wSpd))
 	sb.WriteByte('\n')
 
 	// Separator
-	sep := "  " + strings.Repeat("─", 130)
+	sep := "  " + strings.Repeat("─", 135)
 	if !noColor {
 		sep = White + Dim + sep + Reset
 	}
@@ -230,11 +234,13 @@ func WriteSummary(a *stats.Aggregator, noColor bool) {
 		sb.WriteString(plain(fmt.Sprintf("%d", s.Requests), wReq))
 		sb.WriteString(val(fmtDur(s.TotalLatency), wDur))
 		sb.WriteString(val(fmtDur(s.AvgLatency()), wDur))
-		sb.WriteString(val(fmtDur(s.MinLatency), wDur))
-		sb.WriteString(val(fmtDur(s.MaxLatency), wDur))
 		sb.WriteString(plain(fmt.Sprintf("%d", s.TotalOutputTokens), wNum))
 		sb.WriteString(hashAbbr(s.TotalCacheReadTokens, wAbbr, noColor))
 		sb.WriteString(hashAbbr(s.TotalCacheCreateTokens, wAbbr, noColor))
+		sb.WriteString(plain(fmtPct(cacheHitRate(s.TotalCacheReadTokens, s.TotalCacheCreateTokens)), wPct))
+		sb.WriteString(val(fmtSpeed(s.AvgOutSpeed()), wSpd))
+		sb.WriteString(val(fmtSpeed(s.MaxOutSpeed), wSpd))
+		sb.WriteString(val(fmtSpeed(s.MinOutSpeed), wSpd))
 		sb.WriteByte('\n')
 	}
 
@@ -247,11 +253,13 @@ func WriteSummary(a *stats.Aggregator, noColor bool) {
 	sb.WriteString(plain(fmt.Sprintf("%d", tt.Requests), wReq))
 	sb.WriteString(val(fmtDur(tt.TotalLatency), wDur))
 	sb.WriteString(val(fmtDur(tt.AvgLatency()), wDur))
-	sb.WriteString(val(fmtDur(tt.MinLatency), wDur))
-	sb.WriteString(val(fmtDur(tt.MaxLatency), wDur))
 	sb.WriteString(plain(fmt.Sprintf("%d", tt.TotalOutputTokens), wNum))
 	sb.WriteString(hashAbbr(tt.TotalCacheReadTokens, wAbbr, noColor))
 	sb.WriteString(hashAbbr(tt.TotalCacheCreateTokens, wAbbr, noColor))
+	sb.WriteString(plain(fmtPct(cacheHitRate(tt.TotalCacheReadTokens, tt.TotalCacheCreateTokens)), wPct))
+	sb.WriteString(val(fmtSpeed(tt.AvgOutSpeed()), wSpd))
+	sb.WriteString(val(fmtSpeed(tt.MaxOutSpeed), wSpd))
+	sb.WriteString(val(fmtSpeed(tt.MinOutSpeed), wSpd))
 	sb.WriteByte('\n')
 
 	fmt.Print(sb.String())
@@ -270,6 +278,7 @@ func hashAbbr(n int64, width int, noColor bool) string {
 	return hashColor(s) + s + Reset + strings.Repeat(" ", pad)
 }
 
+// fmtDuration is like fmtDur but exported for use by TUI.
 func fmtDur(d time.Duration) string {
 	if d == 0 {
 		return "0"
@@ -302,4 +311,25 @@ func trunc(s string, n int) string {
 		return s
 	}
 	return s[:n-1] + "…"
+}
+
+// fmtSpeed formats an OutSpeed value (tokens/s) for table display.
+func fmtSpeed(speed float64) string {
+	return fmt.Sprintf("%.1f/s", speed)
+}
+
+// fmtPct formats a percentage value for table display.
+func fmtPct(pct float64) string {
+	return fmt.Sprintf("%.1f%%", pct)
+}
+
+// cacheHitRate returns the cache hit percentage:
+//
+//	cacheRd / (cacheRd + cacheCr) * 100
+func cacheHitRate(cacheRd, cacheCr int64) float64 {
+	total := cacheRd + cacheCr
+	if total == 0 {
+		return 0
+	}
+	return float64(cacheRd) / float64(total) * 100
 }

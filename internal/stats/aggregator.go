@@ -17,7 +17,8 @@ type StreamingStats struct {
 	TotalInputTokens      int64
 	TotalCacheReadTokens  int64
 	TotalCacheCreateTokens int64
-	TotalOutSpeed         float64 // sum of output_tokens/latency_sec per request
+	TotalOutSpeed         float64  // sum of output_tokens/latency_sec per request
+	CurrentOutSpeed       float64  // last-recorded speed
 	MaxOutSpeed           float64
 	MinOutSpeed           float64
 }
@@ -108,6 +109,7 @@ func (a *Aggregator) Record(model, latencyStr, inputTokensStr, outputTokensStr,
 	latencySec := latency.Seconds()
 	if latencySec > 0 {
 		speed := float64(outputTokens) / latencySec
+		s.CurrentOutSpeed = speed
 		s.TotalOutSpeed += speed
 		if speed > s.MaxOutSpeed {
 			s.MaxOutSpeed = speed
@@ -132,6 +134,7 @@ func (a *Aggregator) Record(model, latencyStr, inputTokensStr, outputTokensStr,
 	a.total.TotalCacheCreateTokens += cacheCreate
 	if latencySec > 0 {
 		speed := float64(outputTokens) / latencySec
+		a.total.CurrentOutSpeed = speed
 		a.total.TotalOutSpeed += speed
 		if speed > a.total.MaxOutSpeed {
 			a.total.MaxOutSpeed = speed
