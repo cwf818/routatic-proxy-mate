@@ -39,7 +39,7 @@ func keyColor(key string) string {
 
 // valueColor returns the ANSI color for a value, based on key and content.
 // Only level and latency get fixed semantic colors; numeric values get Cyan/White;
-// everything else defaults to a deterministic hash-based color.
+// time values get Dim; everything else defaults to a deterministic hash-based color.
 func valueColor(key, value string) string {
 	// 1. Level — semantic color.
 	if key == "level" {
@@ -53,12 +53,17 @@ func valueColor(key, value string) string {
 		}
 	}
 
-	// 2. Latency — fixed green.
+	// 2. Time — dim, not hash-colored.
+	if key == "time" {
+		return Dim
+	}
+
+	// 3. Latency — fixed green.
 	if key == "latency" {
 		return Green
 	}
 
-	// 3. Numeric values — cyan for non-zero, white for zero.
+	// 4. Numeric values — cyan for non-zero, white for zero.
 	if isNumeric(value) {
 		if value == "0" {
 			return White
@@ -66,7 +71,7 @@ func valueColor(key, value string) string {
 		return Cyan
 	}
 
-	// 4. Default — hash-based deterministic color.
+	// 5. Default — hash-based deterministic color.
 	return hashColor(value)
 }
 
@@ -93,7 +98,7 @@ var hashPalette = []string{
 	"\033[92m", // bright green
 	Yellow,
 	"\033[38;5;214m", // orange
-	"\033[38;5;94m",  // brown
+	"\033[38;5;208m", // bright orange (was brown)
 }
 
 // hashColor returns a deterministic ANSI color for a string value using
@@ -228,8 +233,8 @@ func WriteSummary(a *stats.Aggregator, noColor bool) {
 		sb.WriteString(val(fmtDur(s.MinLatency), wDur))
 		sb.WriteString(val(fmtDur(s.MaxLatency), wDur))
 		sb.WriteString(plain(fmt.Sprintf("%d", s.TotalOutputTokens), wNum))
-		sb.WriteString(val(hashAbbr(s.TotalCacheReadTokens, noColor), wAbbr))
-		sb.WriteString(val(hashAbbr(s.TotalCacheCreateTokens, noColor), wAbbr))
+		sb.WriteString(hashAbbr(s.TotalCacheReadTokens, wAbbr, noColor))
+		sb.WriteString(hashAbbr(s.TotalCacheCreateTokens, wAbbr, noColor))
 		sb.WriteByte('\n')
 	}
 
@@ -245,20 +250,24 @@ func WriteSummary(a *stats.Aggregator, noColor bool) {
 	sb.WriteString(val(fmtDur(tt.MinLatency), wDur))
 	sb.WriteString(val(fmtDur(tt.MaxLatency), wDur))
 	sb.WriteString(plain(fmt.Sprintf("%d", tt.TotalOutputTokens), wNum))
-	sb.WriteString(val(hashAbbr(tt.TotalCacheReadTokens, noColor), wAbbr))
-	sb.WriteString(val(hashAbbr(tt.TotalCacheCreateTokens, noColor), wAbbr))
+	sb.WriteString(hashAbbr(tt.TotalCacheReadTokens, wAbbr, noColor))
+	sb.WriteString(hashAbbr(tt.TotalCacheCreateTokens, wAbbr, noColor))
 	sb.WriteByte('\n')
 
 	fmt.Print(sb.String())
 }
 
-// hashAbbr is like abbr() but accepts noColor.
-func hashAbbr(n int64, noColor bool) string {
+// hashAbbr is like abbr() but accepts noColor and width for padding.
+func hashAbbr(n int64, width int, noColor bool) string {
 	s := abbr(n)
-	if noColor {
-		return s
+	pad := width - len(s)
+	if pad < 0 {
+		pad = 0
 	}
-	return hashColor(s) + s + Reset
+	if noColor {
+		return s + strings.Repeat(" ", pad)
+	}
+	return hashColor(s) + s + Reset + strings.Repeat(" ", pad)
 }
 
 func fmtDur(d time.Duration) string {

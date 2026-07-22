@@ -17,6 +17,9 @@ type StreamingStats struct {
 	TotalInputTokens      int64
 	TotalCacheReadTokens  int64
 	TotalCacheCreateTokens int64
+	TotalOutSpeed         float64 // sum of output_tokens/latency_sec per request
+	MaxOutSpeed           float64
+	MinOutSpeed           float64
 }
 
 // Clone returns a deep copy.
@@ -44,6 +47,14 @@ func (s *StreamingStats) AvgOutputTokens() float64 {
 	return float64(s.TotalOutputTokens) / float64(s.Requests)
 }
 
+// AvgOutSpeed returns the average output speed (tokens/s).
+func (s *StreamingStats) AvgOutSpeed() float64 {
+	if s.Requests == 0 {
+		return 0
+	}
+	return s.TotalOutSpeed / float64(s.Requests)
+}
+
 // Aggregator collects streaming-completed events.
 type Aggregator struct {
 	models map[string]*StreamingStats
@@ -52,7 +63,13 @@ type Aggregator struct {
 
 // New creates a new Aggregator.
 func New() *Aggregator {
-	return &Aggregator{models: make(map[string]*StreamingStats)}
+	return &Aggregator{
+		models: make(map[string]*StreamingStats),
+		total: StreamingStats{
+			MinLatency:  math.MaxInt64,
+			MinOutSpeed: math.MaxFloat64,
+		},
+	}
 }
 
 // Record records a streaming completed event.
@@ -68,7 +85,8 @@ func (a *Aggregator) Record(model, latencyStr, inputTokensStr, outputTokensStr,
 	s := a.models[model]
 	if s == nil {
 		s = &StreamingStats{
-			MinLatency: math.MaxInt64,
+			MinLatency:  math.MaxInt64,
+			MinOutSpeed: math.MaxFloat64,
 		}
 		a.models[model] = s
 	}
@@ -86,13 +104,42 @@ func (a *Aggregator) Record(model, latencyStr, inputTokensStr, outputTokensStr,
 	s.TotalCacheReadTokens += cacheRead
 	s.TotalCacheCreateTokens += cacheCreate
 
+	// OutSpeed = output_tokens / latency_seconds
+	latencySec := latency.Seconds()
+	if latencySec > 0 {
+		speed := float64(outputTokens) / latencySec
+		s.TotalOutSpeed += speed
+		if speed > s.MaxOutSpeed {
+			s.MaxOutSpeed = speed
+		}
+		if speed < s.MinOutSpeed {
+			s.MinOutSpeed = speed
+		}
+	}
+
 	// Update totals
 	a.total.Requests++
 	a.total.TotalLatency += latency
+	if latency < a.total.MinLatency {
+		a.total.MinLatency = latency
+	}
+	if latency > a.total.MaxLatency {
+		a.total.MaxLatency = latency
+	}
 	a.total.TotalInputTokens += inputTokens
 	a.total.TotalOutputTokens += outputTokens
 	a.total.TotalCacheReadTokens += cacheRead
 	a.total.TotalCacheCreateTokens += cacheCreate
+	if latencySec > 0 {
+		speed := float64(outputTokens) / latencySec
+		a.total.TotalOutSpeed += speed
+		if speed > a.total.MaxOutSpeed {
+			a.total.MaxOutSpeed = speed
+		}
+		if speed < a.total.MinOutSpeed {
+			a.total.MinOutSpeed = speed
+		}
+	}
 }
 
 // Models returns a sorted list of model names.

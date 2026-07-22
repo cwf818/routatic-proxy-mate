@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"syscall"
@@ -12,24 +13,21 @@ import (
 	"routatic-proxy-mate/internal/output"
 	"routatic-proxy-mate/internal/parser"
 	"routatic-proxy-mate/internal/stats"
+	"routatic-proxy-mate/internal/tui"
 )
 
 func main() {
 	noColor := flag.Bool("no-color", false, "disable ANSI color output")
 	showVersion := flag.Bool("version", false, "show version")
+	noTUI := flag.Bool("no-tui", false, "disable TUI mode (legacy pipe filter)")
 	flag.Parse()
 
 	if *showVersion {
-		fmt.Println("routatic-proxy-mate v0.1.0")
+		fmt.Println("routatic-proxy-mate v0.2.0")
 		return
 	}
 
-	// Enable ANSI on Windows console.
-	if !*noColor {
-		enableWindowsANSI()
-	}
-
-	// Check stdin is a pipe.
+	// Check stdin is a pipe (identical for both modes).
 	info, err := os.Stdin.Stat()
 	if err != nil || (info.Mode()&os.ModeCharDevice) != 0 {
 		fmt.Fprintln(os.Stderr, "Usage: routatic-proxy serve | routatic-proxy-mate")
@@ -39,13 +37,48 @@ func main() {
 
 	agg := stats.New()
 
+	// When stdout is a terminal we use the TUI; otherwise fall back to the
+	// original line-by-line pipe filter.
+	if !*noTUI && isTerminal() {
+		runTUI(os.Stdin, agg, *noColor)
+	} else {
+		runLegacy(os.Stdin, agg, *noColor)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TUI mode
+// ---------------------------------------------------------------------------
+
+func runTUI(stdin io.Reader, agg *stats.Aggregator, noColor bool) {
+	app := tui.New(agg, noColor)
+	if err := app.Run(stdin); err != nil {
+		fmt.Fprintf(os.Stderr, "TUI error: %v\n", err)
+	}
+	// After the TUI has exited, print the summary to stdout so the user
+	// sees it in the terminal scrollback.
+	if !noColor {
+		enableWindowsANSI()
+	}
+	output.WriteSummary(agg, noColor)
+}
+
+// ---------------------------------------------------------------------------
+// Legacy pipe-filter mode
+// ---------------------------------------------------------------------------
+
+func runLegacy(stdin io.Reader, agg *stats.Aggregator, noColor bool) {
+	if !noColor {
+		enableWindowsANSI()
+	}
+
 	// Trap interrupts so we can show the summary before exit.
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
 	done := make(chan struct{})
 	go func() {
-		scanner := bufio.NewScanner(os.Stdin)
+		scanner := bufio.NewScanner(stdin)
 		// Increase buffer for long lines (errors may be verbose).
 		scanner.Buffer(make([]byte, 64*1024), 256*1024)
 		for scanner.Scan() {
@@ -53,7 +86,7 @@ func main() {
 			entry, err := parser.ParseLine(line)
 			if err != nil || entry == nil {
 				if line != "" {
-					fmt.Println(output.ColorizeFallback(line, *noColor))
+					fmt.Println(output.ColorizeFallback(line, noColor))
 				}
 				continue
 			}
@@ -71,7 +104,7 @@ func main() {
 			}
 
 			// Print colourised log line.
-			fmt.Println(output.ColorizeRawLine(line, *noColor))
+			fmt.Println(output.ColorizeRawLine(line, noColor))
 		}
 		close(done)
 	}()
@@ -84,7 +117,21 @@ func main() {
 		fmt.Fprintln(os.Stderr, "\n(interrupted — partial summary follows)")
 	}
 
-	output.WriteSummary(agg, *noColor)
+	output.WriteSummary(agg, noColor)
+}
+
+// ---------------------------------------------------------------------------
+// helpers
+// ---------------------------------------------------------------------------
+
+// isTerminal reports whether stdout is a terminal (rather than a pipe or
+// file redirection).
+func isTerminal() bool {
+	info, err := os.Stdout.Stat()
+	if err != nil {
+		return false
+	}
+	return (info.Mode() & os.ModeCharDevice) != 0
 }
 
 // enableWindowsANSI attempts to enable ANSI virtual-terminal processing on

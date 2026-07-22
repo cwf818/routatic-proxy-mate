@@ -10,11 +10,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```
 routatic-proxy-mate/
-├── main.go                    # Entry point: stdin reading, signal handling, orchestration
+├── main.go                    # Entry point: stdin reading, TUI vs legacy dispatch
 ├── internal/
 │   ├── parser/parser.go       # Log line parser (key=value with quoted and concatenated values)
 │   ├── output/output.go       # ANSI color output + summary table formatter
-│   └── stats/aggregator.go    # Per-model streaming completed stats aggregation
+│   ├── stats/aggregator.go    # Per-model streaming completed stats aggregation
+│   └── tui/tui.go             # TUI application: scrollable log view, dynamic stats header
 └── examples/
     ├── 命令提示符1 - routatic-proxy  serve.txt
     └── 命令提示符2 - routatic-proxy  serve.txt
@@ -23,10 +24,26 @@ routatic-proxy-mate/
 ## Build & Run
 
 - **Build**: `go build -o routatic-proxy-mate.exe .`
-- **Run with example data**: `./routatic-proxy-mate.exe --no-color < "examples/命令提示符1 - routatic-proxy  serve.txt"`
-- **Run as pipe** (production): `routatic-proxy serve | routatic-proxy-mate`
-- **Disable color**: `--no-color`
-- **Version**: `--version`
+- **Run with example data** (legacy mode): `./routatic-proxy-mate.exe --no-tui --no-color < "examples/命令提示符1 - routatic-proxy  serve.txt"`
+- **Run as pipe** (automatic TUI when stdout is terminal): `routatic-proxy serve | routatic-proxy-mate`
+- **Flags**:
+  - `--no-color` — disable ANSI color output
+  - `--no-tui` — force legacy pipe-filter mode (no interactive TUI)
+  - `--version` — show version
+
+## TUI Mode
+
+When stdout is a terminal, the tool enters interactive TUI mode (using `tview`):
+
+- **Log area**: scrollable view showing colourised log lines.
+- **Stats header**: a dynamic summary bar pinned to the top. It appears when:
+  1. The log content overflows the visible area, AND
+  2. The user has scrolled down (not at the top).
+- **Auto-scroll**: the view follows new content unless the user scrolls up. Scrolling to the bottom re-enables tracking.
+- **Keyboard**: `↑`/`↓`/`PgUp`/`PgDn` to scroll, `Ctrl+C` to exit.
+- **On exit**: the full summary table is printed to stdout after the TUI closes.
+
+When stdout is piped or the `--no-tui` flag is set, the original line-by-line filter mode is used instead.
 
 ## Log Format
 
