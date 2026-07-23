@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"hash/fnv"
 	"io"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
@@ -31,6 +33,11 @@ type App struct {
 	statsShown bool
 	done       bool
 
+	// levelCounts tracks all log levels seen (key=level string, value=count).
+	// Protected by levelMu for concurrent access from reader / event goroutines.
+	levelMu     sync.Mutex
+	levelCounts map[string]int64
+
 	// The main event loop signals this channel when Run() returns.
 	exited chan struct{}
 }
@@ -43,6 +50,7 @@ func New(agg *stats.Aggregator, noColor bool) *App {
 		agg:         agg,
 		noColor:     noColor,
 		exited:      make(chan struct{}),
+		levelCounts: make(map[string]int64),
 	}
 
 	// ---- stats bar (hidden until entries arrive) ----
@@ -125,6 +133,13 @@ func (a *App) readStdin(stdin io.Reader) {
 				entry.Fields["cache_read_input_tokens"],
 				entry.Fields["cache_creation_input_tokens"],
 			)
+		}
+
+		// Track per-level log counts for the summary bar.
+		if entry.Level != "" {
+			a.levelMu.Lock()
+			a.levelCounts[entry.Level]++
+			a.levelMu.Unlock()
 		}
 
 		colored := output.ColorizeRawLine(line, a.noColor)
@@ -253,15 +268,31 @@ func (a *App) buildStatsText() string {
 	))
 	b.WriteByte('\n')
 
-	// Line 3: averages and cache hit rate.
+	// Line 3: averages, cache hit rate, and non-INFO count.
 	ch := cacheHitRate(tt.TotalCacheReadTokens, tt.TotalCacheCreateTokens)
+	// Gather non-INFO level counts.
+	a.levelMu.Lock()
+	var levelPairs []string
+	for lv, cnt := range a.levelCounts {
+		if lv != "INFO" {
+			levelPairs = append(levelPairs, fmt.Sprintf("[yellow]%s[white]: [lime]%d", lv, cnt))
+		}
+	}
+	a.levelMu.Unlock()
+	var levelStr string
+	if len(levelPairs) > 0 {
+		sort.Strings(levelPairs)
+		levelStr = "  [white]|  " + strings.Join(levelPairs, "  [white]|  ")
+	}
 	b.WriteString(fmt.Sprintf(
 		"[white::b]Avg Latency: [lime]%s  "+
 			"[white]|  Avg Out/Req: [lime]%s  "+
-			"[white]|  Cache Hit: [%s]%.1f%%",
+			"[white]|  Cache Hit: [%s]%.1f%%"+
+			"%s",
 		fmtDuration(tt.AvgLatency()),
 		abbreviate(int64(float64(tt.TotalOutputTokens)/float64(tt.Requests))),
 		cacheHitTag(ch), ch,
+		levelStr,
 	))
 	b.WriteByte('\n')
 
