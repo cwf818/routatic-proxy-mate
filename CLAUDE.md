@@ -36,7 +36,7 @@ routatic-proxy-mate/
 When stdout is a terminal, the tool enters interactive TUI mode (using `tview`):
 
 - **Log area**: scrollable view showing colourised log lines.
-- **Stats header**: a dynamic summary bar pinned to the top. It appears when:
+- **Stats header**: a dynamic summary bar pinned to the bottom. It appears when:
   1. The log content overflows the visible area, AND
   2. The user has scrolled down (not at the top).
 - **Auto-scroll**: the view follows new content unless the user scrolls up. Scrolling to the bottom re-enables tracking.
