@@ -17,6 +17,9 @@ import (
 	"routatic-proxy-mate/internal/tui"
 )
 
+// Version is the current release version.
+const Version = "v0.2.1"
+
 // stringSlice is a flag.Value that accumulates multiple string values.
 type stringSlice []string
 
@@ -37,7 +40,7 @@ func main() {
 	flag.Parse()
 
 	if *showVersion {
-		fmt.Println("routatic-proxy-mate v0.2.0")
+		fmt.Println("routatic-proxy-mate " + Version)
 		return
 	}
 
@@ -74,7 +77,7 @@ func main() {
 // ---------------------------------------------------------------------------
 
 func runTUI(stdin io.Reader, agg *stats.Aggregator, noColor bool, filter *output.ColorFilter) {
-	app := tui.New(agg, noColor, filter)
+	app := tui.New(agg, noColor, filter, Version)
 	if err := app.Run(stdin); err != nil {
 		fmt.Fprintf(os.Stderr, "TUI error: %v\n", err)
 	}

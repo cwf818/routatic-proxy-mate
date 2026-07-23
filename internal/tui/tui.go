@@ -44,8 +44,8 @@ type App struct {
 }
 
 // New creates a new TUI application.  The aggregator is read periodically to
-// build the stats bar.
-func New(agg *stats.Aggregator, noColor bool, filter *output.ColorFilter) *App {
+// build the stats bar. version is displayed in the log view title.
+func New(agg *stats.Aggregator, noColor bool, filter *output.ColorFilter, version string) *App {
 	a := &App{
 		Application: tview.NewApplication(),
 		agg:         agg,
@@ -66,7 +66,7 @@ func New(agg *stats.Aggregator, noColor bool, filter *output.ColorFilter) *App {
 	a.logView.SetDynamicColors(true)
 	a.logView.SetScrollable(true)
 	a.logView.SetBorder(true)
-	a.logView.SetTitle(" Output Log ")
+	a.logView.SetTitle(" cwf818/routatic-proxy-mate " + version + " ")
 	a.logView.SetTitleAlign(tview.AlignLeft)
 	a.logView.ScrollToEnd()
 
