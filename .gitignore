@@ -4,6 +4,7 @@
 *.dll
 *.so
 *.dylib
+routatic-proxy-mate
 
 # Test binary
 *.test
