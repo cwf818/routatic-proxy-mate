@@ -347,9 +347,9 @@ func (a *App) showFinalSummary() {
 		wAbbr, "CacheRd",
 		wAbbr, "CacheCr",
 		wPct, "CacheHit",
-		wSpd, "OutSpd∅",
-		wSpd, "OutSpd↑",
-		wSpd, "OutSpd↓",
+		wSpd, "SpdAvg",
+		wSpd, "SpdMax",
+		wSpd, "SpdMin",
 	)
 	line("  [gray::d]%s\n", strings.Repeat("─", 140))
 
@@ -365,7 +365,7 @@ func (a *App) showFinalSummary() {
 			wAbbr, abbreviate(s.TotalCacheReadTokens),
 			wAbbr, abbreviate(s.TotalCacheCreateTokens),
 			wPct, fmtPct(ch),
-			wSpd, fmtSpeed(s.AvgOutSpeed()),
+			speedTag(s.AvgOutSpeed()), wSpd, fmtSpeed(s.AvgOutSpeed()),
 			wSpd, fmtSpeed(s.MaxOutSpeed),
 			wSpd, fmtSpeed(s.MinOutSpeed),
 		)
@@ -382,7 +382,7 @@ func (a *App) showFinalSummary() {
 		wAbbr, abbreviate(tt.TotalCacheReadTokens),
 		wAbbr, abbreviate(tt.TotalCacheCreateTokens),
 		wPct, fmtPct(ch),
-		wSpd, fmtSpeed(tt.AvgOutSpeed()),
+		speedTag(tt.AvgOutSpeed()), wSpd, fmtSpeed(tt.AvgOutSpeed()),
 		wSpd, fmtSpeed(tt.MaxOutSpeed),
 		wSpd, fmtSpeed(tt.MinOutSpeed),
 	)

@@ -167,6 +167,11 @@ func ColorizeFallback(line string, noColor bool) string {
 	return White + Dim + line + Reset
 }
 
+// visualLen returns the visual cell width of s for terminal display.
+// This counts runes (not bytes); all characters we use (∅↑↓…─µ) are
+// single-width, so the rune count equals the display width.
+func visualLen(s string) int { return len([]rune(s)) }
+
 // WriteSummary writes the per-model streaming-completed summary table to
 // stdout.  Columns are fixed-width with manual padding (ANSI-safe).
 func WriteSummary(a *stats.Aggregator, noColor bool) {
@@ -177,12 +182,12 @@ func WriteSummary(a *stats.Aggregator, noColor bool) {
 
 	colorCell := func(s, c string, width int) string {
 		if c == "" || noColor {
-			return s + strings.Repeat(" ", width-len(s))
+			return s + strings.Repeat(" ", width-visualLen(s))
 		}
-		return c + s + Reset + strings.Repeat(" ", width-len(s))
+		return c + s + Reset + strings.Repeat(" ", width-visualLen(s))
 	}
 	plain := func(s string, width int) string {
-		return s + strings.Repeat(" ", width-len(s))
+		return s + strings.Repeat(" ", width-visualLen(s))
 	}
 	header := func(s string, width int) string { return colorCell(s, Cyan+Bold, width) }
 	val := func(s string, width int) string   { return colorCell(s, Green, width) }
@@ -213,9 +218,9 @@ func WriteSummary(a *stats.Aggregator, noColor bool) {
 	sb.WriteString(header("CacheRd", wAbbr))
 	sb.WriteString(header("CacheCr", wAbbr))
 	sb.WriteString(header("CacheHit", wPct))
-	sb.WriteString(header("OutSpd∅", wSpd))
-	sb.WriteString(header("OutSpd↑", wSpd))
-	sb.WriteString(header("OutSpd↓", wSpd))
+	sb.WriteString(header("SpdAvg", wSpd))
+	sb.WriteString(header("SpdMax", wSpd))
+	sb.WriteString(header("SpdMin", wSpd))
 	sb.WriteByte('\n')
 
 	// Separator
@@ -238,7 +243,7 @@ func WriteSummary(a *stats.Aggregator, noColor bool) {
 		sb.WriteString(hashAbbr(s.TotalCacheReadTokens, wAbbr, noColor))
 		sb.WriteString(hashAbbr(s.TotalCacheCreateTokens, wAbbr, noColor))
 		sb.WriteString(plain(fmtPct(cacheHitRate(s.TotalCacheReadTokens, s.TotalCacheCreateTokens)), wPct))
-		sb.WriteString(val(fmtSpeed(s.AvgOutSpeed()), wSpd))
+		sb.WriteString(colorCell(fmtSpeed(s.AvgOutSpeed()), speedBandColor(s.AvgOutSpeed()), wSpd))
 		sb.WriteString(val(fmtSpeed(s.MaxOutSpeed), wSpd))
 		sb.WriteString(val(fmtSpeed(s.MinOutSpeed), wSpd))
 		sb.WriteByte('\n')
@@ -257,7 +262,7 @@ func WriteSummary(a *stats.Aggregator, noColor bool) {
 	sb.WriteString(hashAbbr(tt.TotalCacheReadTokens, wAbbr, noColor))
 	sb.WriteString(hashAbbr(tt.TotalCacheCreateTokens, wAbbr, noColor))
 	sb.WriteString(plain(fmtPct(cacheHitRate(tt.TotalCacheReadTokens, tt.TotalCacheCreateTokens)), wPct))
-	sb.WriteString(val(fmtSpeed(tt.AvgOutSpeed()), wSpd))
+	sb.WriteString(colorCell(fmtSpeed(tt.AvgOutSpeed()), speedBandColor(tt.AvgOutSpeed()), wSpd))
 	sb.WriteString(val(fmtSpeed(tt.MaxOutSpeed), wSpd))
 	sb.WriteString(val(fmtSpeed(tt.MinOutSpeed), wSpd))
 	sb.WriteByte('\n')
@@ -268,7 +273,7 @@ func WriteSummary(a *stats.Aggregator, noColor bool) {
 // hashAbbr is like abbr() but accepts noColor and width for padding.
 func hashAbbr(n int64, width int, noColor bool) string {
 	s := abbr(n)
-	pad := width - len(s)
+	pad := width - visualLen(s)
 	if pad < 0 {
 		pad = 0
 	}
@@ -321,6 +326,22 @@ func fmtSpeed(speed float64) string {
 // fmtPct formats a percentage value for table display.
 func fmtPct(pct float64) string {
 	return fmt.Sprintf("%.1f%%", pct)
+}
+
+// speedBandColor returns the ANSI colour for a speed value using a
+// 4-band scheme: ≤20 red, ≤40 orange (#ff8700 as ANSI 256-colour),
+// ≤60 yellow, >60 green.
+func speedBandColor(speed float64) string {
+	switch {
+	case speed <= 20:
+		return Red
+	case speed <= 40:
+		return "[38;5;208m" // orange
+	case speed <= 60:
+		return Yellow
+	default:
+		return Green
+	}
 }
 
 // cacheHitRate returns the cache hit percentage:
