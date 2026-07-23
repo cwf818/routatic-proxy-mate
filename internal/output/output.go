@@ -112,18 +112,52 @@ func hashColor(s string) string {
 // eqColor returns the color for the '=' separator.
 func eqColor() string { return Dim }
 
+// ColorFilter controls which lines/keys get ANSI color applied.
+//
+//   - RowContains: if non-empty, only lines containing at least one of these
+//     substrings are colorized.
+//   - KeyNames: if non-empty, only these keys within a matching line are
+//     colorized; non-matching keys are emitted verbatim.
+//
+// When both are set, the conditions are AND-ed: a line must match a row
+// substring AND only matching keys within it are colorized.
+type ColorFilter struct {
+	RowContains []string
+	KeyNames    []string
+}
+
 // ColorizeRawLine returns the raw log line with separate ANSI color applied
 // to the key, the '=', and the value.  When noColor is true the raw line
-// is returned verbatim.
-func ColorizeRawLine(raw string, noColor bool) string {
+// is returned verbatim.  filter may be nil for no filtering.
+func ColorizeRawLine(raw string, noColor bool, filter *ColorFilter) string {
 	if noColor || raw == "" {
 		return raw
+	}
+
+	// Row filter: if set, skip colorization when no row substring matches.
+	if filter != nil && len(filter.RowContains) > 0 {
+		if !containsAny(raw, filter.RowContains) {
+			return raw
+		}
 	}
 
 	spans := parser.Spans(raw)
 
 	var b strings.Builder
 	b.Grow(len(raw) + len(spans)*18)
+
+	// Precompute key-matches so we only scan filter.KeyNames once per key.
+	isKeyColored := func(key string) bool {
+		if filter == nil || len(filter.KeyNames) == 0 {
+			return true
+		}
+		for _, kn := range filter.KeyNames {
+			if key == kn {
+				return true
+			}
+		}
+		return false
+	}
 
 	pos := 0
 	for _, sp := range spans {
@@ -132,23 +166,28 @@ func ColorizeRawLine(raw string, noColor bool) string {
 			b.WriteString(raw[pos:sp.Start])
 		}
 
-		// Key
-		kc := keyColor(sp.Key)
-		b.WriteString(kc)
-		b.WriteString(raw[sp.Start:sp.EqPos])
-		b.WriteString(Reset)
+		if isKeyColored(sp.Key) {
+			// Fully colored span.
+			kc := keyColor(sp.Key)
+			b.WriteString(kc)
+			b.WriteString(raw[sp.Start:sp.EqPos])
+			b.WriteString(Reset)
 
-		// =
-		b.WriteString(eqColor())
-		b.WriteByte('=')
-		b.WriteString(Reset)
+			// =
+			b.WriteString(eqColor())
+			b.WriteByte('=')
+			b.WriteString(Reset)
 
-		// Value
-		valStart := sp.EqPos + 1
-		vc := valueColor(sp.Key, sp.Value)
-		b.WriteString(vc)
-		b.WriteString(raw[valStart:sp.End])
-		b.WriteString(Reset)
+			// Value
+			valStart := sp.EqPos + 1
+			vc := valueColor(sp.Key, sp.Value)
+			b.WriteString(vc)
+			b.WriteString(raw[valStart:sp.End])
+			b.WriteString(Reset)
+		} else {
+			// Uncolored span – write verbatim.
+			b.WriteString(raw[sp.Start:sp.End])
+		}
 
 		pos = sp.End
 	}
@@ -159,10 +198,27 @@ func ColorizeRawLine(raw string, noColor bool) string {
 	return b.String()
 }
 
+// containsAny reports whether s contains any of the substrings in subs.
+func containsAny(s string, subs []string) bool {
+	for _, sub := range subs {
+		if strings.Contains(s, sub) {
+			return true
+		}
+	}
+	return false
+}
+
 // ColorizeFallback applies a dim color to an unparseable / startup line.
-func ColorizeFallback(line string, noColor bool) string {
+// When a row filter is set, the line is colorised only if it contains at
+// least one of the row substrings.  filter may be nil.
+func ColorizeFallback(line string, noColor bool, filter *ColorFilter) string {
 	if noColor || line == "" {
 		return line
+	}
+	if filter != nil && len(filter.RowContains) > 0 {
+		if !containsAny(line, filter.RowContains) {
+			return line
+		}
 	}
 	return White + Dim + line + Reset
 }

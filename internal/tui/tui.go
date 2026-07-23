@@ -29,6 +29,7 @@ type App struct {
 	flex      *tview.Flex
 	agg       *stats.Aggregator
 	noColor   bool
+	filter    *output.ColorFilter
 
 	statsShown bool
 	done       bool
@@ -44,11 +45,12 @@ type App struct {
 
 // New creates a new TUI application.  The aggregator is read periodically to
 // build the stats bar.
-func New(agg *stats.Aggregator, noColor bool) *App {
+func New(agg *stats.Aggregator, noColor bool, filter *output.ColorFilter) *App {
 	a := &App{
 		Application: tview.NewApplication(),
 		agg:         agg,
 		noColor:     noColor,
+		filter:      filter,
 		exited:      make(chan struct{}),
 		levelCounts: make(map[string]int64),
 	}
@@ -117,7 +119,7 @@ func (a *App) readStdin(stdin io.Reader) {
 		entry, err := parser.ParseLine(line)
 		if err != nil || entry == nil {
 			if line != "" {
-				colored := output.ColorizeFallback(line, a.noColor)
+				colored := output.ColorizeFallback(line, a.noColor, a.filter)
 				a.appendLine(colored)
 			}
 			continue
@@ -147,7 +149,7 @@ func (a *App) readStdin(stdin io.Reader) {
 			a.levelMu.Unlock()
 		}
 
-		colored := output.ColorizeRawLine(line, a.noColor)
+		colored := output.ColorizeRawLine(line, a.noColor, a.filter)
 		a.appendLine(colored)
 	}
 

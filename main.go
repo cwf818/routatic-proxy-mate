@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"unsafe"
 
@@ -16,15 +17,37 @@ import (
 	"routatic-proxy-mate/internal/tui"
 )
 
+// stringSlice is a flag.Value that accumulates multiple string values.
+type stringSlice []string
+
+func (s *stringSlice) String() string { return strings.Join(*s, ",") }
+func (s *stringSlice) Set(v string) error {
+	*s = append(*s, v)
+	return nil
+}
+
 func main() {
 	noColor := flag.Bool("no-color", false, "disable ANSI color output")
 	showVersion := flag.Bool("version", false, "show version")
 	noTUI := flag.Bool("no-tui", false, "disable TUI mode (legacy pipe filter)")
+	var rowFlag stringSlice
+	flag.Var(&rowFlag, "row", "only colorize lines containing this string (repeatable)")
+	var keyFlag stringSlice
+	flag.Var(&keyFlag, "key", "only colorize this log key (repeatable; e.g. --key model --key latency)")
 	flag.Parse()
 
 	if *showVersion {
 		fmt.Println("routatic-proxy-mate v0.2.0")
 		return
+	}
+
+	// Build the color filter from flags.
+	var filter *output.ColorFilter
+	if len(rowFlag) > 0 || len(keyFlag) > 0 {
+		filter = &output.ColorFilter{
+			RowContains: rowFlag,
+			KeyNames:    keyFlag,
+		}
 	}
 
 	// Check stdin is a pipe (identical for both modes).
@@ -40,9 +63,9 @@ func main() {
 	// When stdout is a terminal we use the TUI; otherwise fall back to the
 	// original line-by-line pipe filter.
 	if !*noTUI && isTerminal() {
-		runTUI(os.Stdin, agg, *noColor)
+		runTUI(os.Stdin, agg, *noColor, filter)
 	} else {
-		runLegacy(os.Stdin, agg, *noColor)
+		runLegacy(os.Stdin, agg, *noColor, filter)
 	}
 }
 
@@ -50,8 +73,8 @@ func main() {
 // TUI mode
 // ---------------------------------------------------------------------------
 
-func runTUI(stdin io.Reader, agg *stats.Aggregator, noColor bool) {
-	app := tui.New(agg, noColor)
+func runTUI(stdin io.Reader, agg *stats.Aggregator, noColor bool, filter *output.ColorFilter) {
+	app := tui.New(agg, noColor, filter)
 	if err := app.Run(stdin); err != nil {
 		fmt.Fprintf(os.Stderr, "TUI error: %v\n", err)
 	}
@@ -67,7 +90,7 @@ func runTUI(stdin io.Reader, agg *stats.Aggregator, noColor bool) {
 // Legacy pipe-filter mode
 // ---------------------------------------------------------------------------
 
-func runLegacy(stdin io.Reader, agg *stats.Aggregator, noColor bool) {
+func runLegacy(stdin io.Reader, agg *stats.Aggregator, noColor bool, filter *output.ColorFilter) {
 	if !noColor {
 		enableWindowsANSI()
 	}
@@ -86,7 +109,7 @@ func runLegacy(stdin io.Reader, agg *stats.Aggregator, noColor bool) {
 			entry, err := parser.ParseLine(line)
 			if err != nil || entry == nil {
 				if line != "" {
-					fmt.Println(output.ColorizeFallback(line, noColor))
+					fmt.Println(output.ColorizeFallback(line, noColor, filter))
 				}
 				continue
 			}
@@ -109,7 +132,7 @@ func runLegacy(stdin io.Reader, agg *stats.Aggregator, noColor bool) {
 			}
 
 			// Print colourised log line.
-			fmt.Println(output.ColorizeRawLine(line, noColor))
+			fmt.Println(output.ColorizeRawLine(line, noColor, filter))
 		}
 		close(done)
 	}()
