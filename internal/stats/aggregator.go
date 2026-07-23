@@ -10,6 +10,7 @@ import (
 // entries.
 type StreamingStats struct {
 	Requests              int
+	Attempts              int           // number of "attempting streaming model" events
 	TotalLatency          time.Duration
 	MinLatency            time.Duration
 	MaxLatency            time.Duration
@@ -71,6 +72,24 @@ func New() *Aggregator {
 			MinOutSpeed: math.MaxFloat64,
 		},
 	}
+}
+
+// RecordAttempt records an "attempting streaming model" event for the given
+// model.  It initialises the per-model entry if needed.
+func (a *Aggregator) RecordAttempt(model string) {
+	if model == "" {
+		return
+	}
+	s := a.models[model]
+	if s == nil {
+		s = &StreamingStats{
+			MinLatency:  math.MaxInt64,
+			MinOutSpeed: math.MaxFloat64,
+		}
+		a.models[model] = s
+	}
+	s.Attempts++
+	a.total.Attempts++
 }
 
 // Record records a streaming completed event.

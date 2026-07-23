@@ -103,6 +103,11 @@ func runLegacy(stdin io.Reader, agg *stats.Aggregator, noColor bool) {
 				)
 			}
 
+			// Record attempting streaming model stats.
+			if parser.ClassifyMessage(entry.Message) == parser.MsgAttemptingStreaming {
+				agg.RecordAttempt(entry.Fields["model"])
+			}
+
 			// Print colourised log line.
 			fmt.Println(output.ColorizeRawLine(line, noColor))
 		}

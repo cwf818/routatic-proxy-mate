@@ -195,7 +195,7 @@ func WriteSummary(a *stats.Aggregator, noColor bool) {
 
 	const (
 		wModel = 24
-		wReq   = 8
+		wReq   = 13
 		wDur   = 11
 		wNum   = 12
 		wAbbr  = 10
@@ -211,7 +211,7 @@ func WriteSummary(a *stats.Aggregator, noColor bool) {
 	// Header
 	sb.WriteString("  ")
 	sb.WriteString(header("Model", wModel))
-	sb.WriteString(header("Req", wReq))
+	sb.WriteString(header("OK/Att", wReq))
 	sb.WriteString(header("Total", wDur))
 	sb.WriteString(header("Avg", wDur))
 	sb.WriteString(header("OutTok", wNum))
@@ -224,7 +224,7 @@ func WriteSummary(a *stats.Aggregator, noColor bool) {
 	sb.WriteByte('\n')
 
 	// Separator
-	sep := "  " + strings.Repeat("─", 135)
+	sep := "  " + strings.Repeat("─", 140)
 	if !noColor {
 		sep = White + Dim + sep + Reset
 	}
@@ -236,16 +236,16 @@ func WriteSummary(a *stats.Aggregator, noColor bool) {
 		s := a.ForModel(m)
 		sb.WriteString("  ")
 		sb.WriteString(lbl(trunc(m, wModel), wModel))
-		sb.WriteString(plain(fmt.Sprintf("%d", s.Requests), wReq))
+		sb.WriteString(plain(fmt.Sprintf("%d/%d", s.Requests, s.Attempts), wReq))
 		sb.WriteString(val(fmtDur(s.TotalLatency), wDur))
 		sb.WriteString(val(fmtDur(s.AvgLatency()), wDur))
 		sb.WriteString(plain(fmt.Sprintf("%d", s.TotalOutputTokens), wNum))
 		sb.WriteString(hashAbbr(s.TotalCacheReadTokens, wAbbr, noColor))
 		sb.WriteString(hashAbbr(s.TotalCacheCreateTokens, wAbbr, noColor))
 		sb.WriteString(plain(fmtPct(cacheHitRate(s.TotalCacheReadTokens, s.TotalCacheCreateTokens)), wPct))
-		sb.WriteString(colorCell(fmtSpeed(s.AvgOutSpeed()), speedBandColor(s.AvgOutSpeed()), wSpd))
-		sb.WriteString(val(fmtSpeed(s.MaxOutSpeed), wSpd))
-		sb.WriteString(val(fmtSpeed(s.MinOutSpeed), wSpd))
+		sb.WriteString(colorCell(fmtSpeed(saneSpeed(s.AvgOutSpeed())), speedBandColor(saneSpeed(s.AvgOutSpeed())), wSpd))
+		sb.WriteString(val(fmtSpeed(saneSpeed(s.MaxOutSpeed)), wSpd))
+		sb.WriteString(val(fmtSpeed(saneSpeed(s.MinOutSpeed)), wSpd))
 		sb.WriteByte('\n')
 	}
 
@@ -255,16 +255,16 @@ func WriteSummary(a *stats.Aggregator, noColor bool) {
 	sb.WriteByte('\n')
 	sb.WriteString("  ")
 	sb.WriteString(lbl("TOTAL", wModel))
-	sb.WriteString(plain(fmt.Sprintf("%d", tt.Requests), wReq))
+	sb.WriteString(plain(fmt.Sprintf("%d/%d", tt.Requests, tt.Attempts), wReq))
 	sb.WriteString(val(fmtDur(tt.TotalLatency), wDur))
 	sb.WriteString(val(fmtDur(tt.AvgLatency()), wDur))
 	sb.WriteString(plain(fmt.Sprintf("%d", tt.TotalOutputTokens), wNum))
 	sb.WriteString(hashAbbr(tt.TotalCacheReadTokens, wAbbr, noColor))
 	sb.WriteString(hashAbbr(tt.TotalCacheCreateTokens, wAbbr, noColor))
 	sb.WriteString(plain(fmtPct(cacheHitRate(tt.TotalCacheReadTokens, tt.TotalCacheCreateTokens)), wPct))
-	sb.WriteString(colorCell(fmtSpeed(tt.AvgOutSpeed()), speedBandColor(tt.AvgOutSpeed()), wSpd))
-	sb.WriteString(val(fmtSpeed(tt.MaxOutSpeed), wSpd))
-	sb.WriteString(val(fmtSpeed(tt.MinOutSpeed), wSpd))
+	sb.WriteString(colorCell(fmtSpeed(saneSpeed(tt.AvgOutSpeed())), speedBandColor(saneSpeed(tt.AvgOutSpeed())), wSpd))
+	sb.WriteString(val(fmtSpeed(saneSpeed(tt.MaxOutSpeed)), wSpd))
+	sb.WriteString(val(fmtSpeed(saneSpeed(tt.MinOutSpeed)), wSpd))
 	sb.WriteByte('\n')
 
 	fmt.Print(sb.String())
@@ -347,6 +347,15 @@ func speedBandColor(speed float64) string {
 // cacheHitRate returns the cache hit percentage:
 //
 //	cacheRd / (cacheRd + cacheCr) * 100
+// saneSpeed returns 0 when speed is the unset sentinel (math.MaxFloat64),
+// otherwise returns speed unchanged.
+func saneSpeed(speed float64) float64 {
+	if speed >= 1e200 {
+		return 0
+	}
+	return speed
+}
+
 func cacheHitRate(cacheRd, cacheCr int64) float64 {
 	total := cacheRd + cacheCr
 	if total == 0 {

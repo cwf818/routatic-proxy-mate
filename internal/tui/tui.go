@@ -135,6 +135,11 @@ func (a *App) readStdin(stdin io.Reader) {
 			)
 		}
 
+
+			// Record attempting streaming model stats.
+			if parser.ClassifyMessage(entry.Message) == parser.MsgAttemptingStreaming {
+				a.agg.RecordAttempt(entry.Fields["model"])
+			}
 		// Track per-level log counts for the summary bar.
 		if entry.Level != "" {
 			a.levelMu.Lock()
@@ -304,7 +309,7 @@ func (a *App) buildStatsText() string {
 		}
 		s := a.agg.ForModel(m)
 		tag := tviewModelTag(m)
-		b.WriteString(fmt.Sprintf("[%s]%s[white]([lime]%d[white])", tag, m, s.Requests))
+		b.WriteString(fmt.Sprintf("[%s]%s[white]([lime]%d/%d[white])", tag, m, s.Requests, s.Attempts))
 	}
 
 	return b.String()
@@ -322,7 +327,7 @@ func (a *App) showFinalSummary() {
 
 	const (
 		wModel = 24
-		wReq   = 8
+		wReq   = 13
 		wDur   = 11
 		wNum   = 12
 		wAbbr  = 10
@@ -340,7 +345,7 @@ func (a *App) showFinalSummary() {
 	line("[white::b]  Streaming Completed Summary (by model)\n\n")
 	line("  [cyan::b]%-*s[white::b] %*s %*s %*s %*s %*s %*s %*s %*s %*s %*s\n",
 		wModel, "Model",
-		wReq, "Req",
+		wReq, "OK/Att",
 		wDur, "Total",
 		wDur, "Avg",
 		wNum, "OutTok",
@@ -351,40 +356,40 @@ func (a *App) showFinalSummary() {
 		wSpd, "SpdMax",
 		wSpd, "SpdMin",
 	)
-	line("  [gray::d]%s\n", strings.Repeat("─", 140))
+	line("  [gray::d]%s\n", strings.Repeat("─", 145))
 
 	for _, m := range models {
 		s := a.agg.ForModel(m)
 		ch := cacheHitRate(s.TotalCacheReadTokens, s.TotalCacheCreateTokens)
-		line("  [yellow]%-*s[white] %*d %*s %*s %*d %*s %*s %*s %*s %*s %*s\n",
+		line("  [yellow]%-*s[white] %*s %*s %*s %*d %*s %*s %*s %*s %*s %*s\n",
 			wModel, truncate(m, wModel),
-			wReq, s.Requests,
+			wReq, fmt.Sprintf("%d/%d", s.Requests, s.Attempts),
 			wDur, fmtDuration(s.TotalLatency),
 			wDur, fmtDuration(s.AvgLatency()),
 			wNum, s.TotalOutputTokens,
 			wAbbr, abbreviate(s.TotalCacheReadTokens),
 			wAbbr, abbreviate(s.TotalCacheCreateTokens),
 			wPct, fmtPct(ch),
-			speedTag(s.AvgOutSpeed()), wSpd, fmtSpeed(s.AvgOutSpeed()),
-			wSpd, fmtSpeed(s.MaxOutSpeed),
-			wSpd, fmtSpeed(s.MinOutSpeed),
+			speedTag(saneSpeed(s.AvgOutSpeed())), wSpd, fmtSpeed(saneSpeed(s.AvgOutSpeed())),
+			wSpd, fmtSpeed(saneSpeed(s.MaxOutSpeed)),
+			wSpd, fmtSpeed(saneSpeed(s.MinOutSpeed)),
 		)
 	}
 
-	line("  [gray::d]%s\n", strings.Repeat("─", 140))
+	line("  [gray::d]%s\n", strings.Repeat("─", 145))
 	ch := cacheHitRate(tt.TotalCacheReadTokens, tt.TotalCacheCreateTokens)
-	line("  [yellow]%-*s[white] %*d %*s %*s %*d %*s %*s %*s %*s %*s %*s\n",
+	line("  [yellow]%-*s[white] %*s %*s %*s %*d %*s %*s %*s %*s %*s %*s\n",
 		wModel, "TOTAL",
-		wReq, tt.Requests,
+		wReq, fmt.Sprintf("%d/%d", tt.Requests, tt.Attempts),
 		wDur, fmtDuration(tt.TotalLatency),
 		wDur, fmtDuration(tt.AvgLatency()),
 		wNum, tt.TotalOutputTokens,
 		wAbbr, abbreviate(tt.TotalCacheReadTokens),
 		wAbbr, abbreviate(tt.TotalCacheCreateTokens),
 		wPct, fmtPct(ch),
-		speedTag(tt.AvgOutSpeed()), wSpd, fmtSpeed(tt.AvgOutSpeed()),
-		wSpd, fmtSpeed(tt.MaxOutSpeed),
-		wSpd, fmtSpeed(tt.MinOutSpeed),
+		speedTag(saneSpeed(tt.AvgOutSpeed())), wSpd, fmtSpeed(saneSpeed(tt.AvgOutSpeed())),
+		wSpd, fmtSpeed(saneSpeed(tt.MaxOutSpeed)),
+		wSpd, fmtSpeed(saneSpeed(tt.MinOutSpeed)),
 	)
 
 	fmt.Fprint(a.logView, tview.Escape(b.String()))
@@ -469,6 +474,13 @@ func speedTag(speed float64) string {
 // cacheHitRate returns the cache hit percentage:
 //
 //	cacheRd / (cacheRd + cacheCr) * 100
+func saneSpeed(speed float64) float64 {
+	if speed >= 1e200 {
+		return 0
+	}
+	return speed
+}
+
 func cacheHitRate(cacheRd, cacheCr int64) float64 {
 	total := cacheRd + cacheCr
 	if total == 0 {
