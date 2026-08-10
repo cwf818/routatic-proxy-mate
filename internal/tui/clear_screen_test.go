@@ -13,7 +13,7 @@ import (
 // the log view is cleared: the aggregator is not reset and the stats bar is
 // still rendered after the clear.
 func TestClearLogView(t *testing.T) {
-	a := New(stats.New(), true, nil, "test")
+	a := New(stats.New(), true, nil, "test", time.Now())
 	a.logView.SetText("line one\nline two\n")
 
 	// Seed the aggregator so a streaming-completed entry exists and the

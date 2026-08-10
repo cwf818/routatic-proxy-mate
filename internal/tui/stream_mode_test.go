@@ -5,13 +5,14 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestEmitLineStreamsToStdoutAfterRelease verifies that once the TUI has been
 // left via Ctrl+C (stream mode) and the terminal has been released, emitLine
 // writes to stdout instead of the log view.
 func TestEmitLineStreamsToStdoutAfterRelease(t *testing.T) {
-	a := New(nil, true, nil, "test")
+	a := New(nil, true, nil, "test", time.Now())
 
 	// Simulate the TUI having been left via Ctrl+C and the terminal restored.
 	a.streamMode.Store(true)
@@ -38,7 +39,7 @@ func TestEmitLineStreamsToStdoutAfterRelease(t *testing.T) {
 // TestFinishReadSignalsReaderDone verifies that EOF signals main via
 // ReaderDone() in stream mode (where the TUI is already gone).
 func TestFinishReadSignalsReaderDone(t *testing.T) {
-	a := New(nil, true, nil, "test")
+	a := New(nil, true, nil, "test", time.Now())
 
 	select {
 	case <-a.ReaderDone():

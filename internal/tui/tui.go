@@ -48,6 +48,9 @@ type App struct {
 	statsShown bool
 	done       bool
 
+	// started is the process start time; shown as UpTime in the stats bar.
+	started time.Time
+
 	// levelCounts tracks all log levels seen (key=level string, value=count).
 	// Protected by levelMu for concurrent access from reader / event goroutines.
 	levelMu     sync.Mutex
@@ -75,12 +78,13 @@ type App struct {
 
 // New creates a new TUI application.  The aggregator is read periodically to
 // build the stats bar. version is displayed in the log view title.
-func New(agg *stats.Aggregator, noColor bool, filter *output.ColorFilter, version string) *App {
+func New(agg *stats.Aggregator, noColor bool, filter *output.ColorFilter, version string, started time.Time) *App {
 	a := &App{
 		Application: tview.NewApplication(),
 		agg:         agg,
 		noColor:     noColor,
 		filter:      filter,
+		started:     started,
 		exited:      make(chan struct{}),
 		levelCounts: make(map[string]int64),
 		released:    make(chan struct{}),
@@ -420,12 +424,14 @@ func (a *App) buildStatsText() string {
 			"[white]|  Avg: [%s]%.1f/s  "+
 			"[white]|  Max: [lime]%.1f/s  "+
 			"[white]|  Min: [lime]%.1f/s  "+
-			"[white]|  ApiTime: [lime]%s",
+			"[white]|  ApiTime: [lime]%s  "+
+			"[white]|  UpTime: [lime]%s",
 		speedTag(tt.CurrentOutSpeed), tt.CurrentOutSpeed,
 		speedTag(tt.AvgOutSpeed()), tt.AvgOutSpeed(),
 		tt.MaxOutSpeed,
 		tt.MinOutSpeed,
 		fmtDuration(tt.TotalLatency),
+		fmtDuration(time.Since(a.started)),
 	))
 	b.WriteByte('\n')
 

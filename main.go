@@ -32,6 +32,8 @@ func (s *stringSlice) Set(v string) error {
 }
 
 func main() {
+	started := time.Now()
+
 	noColor := flag.Bool("no-color", false, "disable ANSI color output")
 	showVersion := flag.Bool("version", false, "show version")
 	noTUI := flag.Bool("no-tui", false, "disable TUI mode (legacy pipe filter)")
@@ -78,7 +80,7 @@ func main() {
 	// When stdout is a terminal we use the TUI; otherwise fall back to the
 	// original line-by-line pipe filter.
 	if !*noTUI && isTerminal() {
-		runTUI(os.Stdin, agg, *noColor, filter, logWriter)
+		runTUI(os.Stdin, agg, *noColor, filter, logWriter, started)
 	} else {
 		runLegacy(os.Stdin, agg, *noColor, filter, logWriter)
 	}
@@ -88,8 +90,8 @@ func main() {
 // TUI mode
 // ---------------------------------------------------------------------------
 
-func runTUI(stdin io.Reader, agg *stats.Aggregator, noColor bool, filter *output.ColorFilter, logWriter *logfile.Writer) {
-	app := tui.New(agg, noColor, filter, Version)
+func runTUI(stdin io.Reader, agg *stats.Aggregator, noColor bool, filter *output.ColorFilter, logWriter *logfile.Writer, started time.Time) {
+	app := tui.New(agg, noColor, filter, Version, started)
 	app.SetLogWriter(logWriter)
 	// Ensure the reader is never left blocked waiting for the terminal to be
 	// released, even if Run() returns early with an error.
