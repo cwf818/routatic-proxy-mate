@@ -40,7 +40,7 @@ When stdout is a terminal, the tool enters interactive TUI mode (using `tview`):
   1. The log content overflows the visible area, AND
   2. The user has scrolled down (not at the top).
 - **Auto-scroll**: the view follows new content unless the user scrolls up. Scrolling to the bottom re-enables tracking.
-- **Keyboard**: `↑`/`↓`/`PgUp`/`PgDn` to scroll, `Ctrl+C` to exit.
+- **Keyboard**: `↑`/`↓`/`PgUp`/`PgDn` to scroll. The first `Ctrl+C` closes the TUI and keeps the pipe alive, switching to streaming raw (coloured) log lines to the current terminal; a second `Ctrl+C` (or EOF) fully exits.
 - **On exit**: the full summary table is printed to stdout after the TUI closes.
 
 When stdout is piped or the `--no-tui` flag is set, the original line-by-line filter mode is used instead.

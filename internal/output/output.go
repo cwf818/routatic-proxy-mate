@@ -339,21 +339,40 @@ func hashAbbr(n int64, width int, noColor bool) string {
 	return hashColor(s) + s + Reset + strings.Repeat(" ", pad)
 }
 
-// fmtDuration is like fmtDur but exported for use by TUI.
+// fmtDur formats a duration using d/h/m/s units, falling back to ms/µs below one second.
 func fmtDur(d time.Duration) string {
 	if d == 0 {
 		return "0"
 	}
-	switch {
-	case d >= 60_000_000_000:
-		return fmt.Sprintf("%dm%ds", d/60_000_000_000, (d%60_000_000_000)/1_000_000_000)
-	case d >= 1_000_000_000:
-		return fmt.Sprintf("%.1fs", float64(d)/1_000_000_000)
-	case d >= 1_000_000:
-		return fmt.Sprintf("%dms", d/1_000_000)
-	default:
-		return fmt.Sprintf("%dµs", d/1000)
+	if d < time.Second {
+		if d >= time.Millisecond {
+			return fmt.Sprintf("%dms", d/time.Millisecond)
+		}
+		return fmt.Sprintf("%dµs", d/time.Microsecond)
 	}
+
+	days := int64(d / (24 * time.Hour))
+	d %= 24 * time.Hour
+	hours := int64(d / time.Hour)
+	d %= time.Hour
+	mins := int64(d / time.Minute)
+	d %= time.Minute
+	secs := int64(d / time.Second)
+
+	var b strings.Builder
+	if days > 0 {
+		fmt.Fprintf(&b, "%dd", days)
+	}
+	if hours > 0 {
+		fmt.Fprintf(&b, "%dh", hours)
+	}
+	if mins > 0 {
+		fmt.Fprintf(&b, "%dm", mins)
+	}
+	if secs > 0 || b.Len() == 0 {
+		fmt.Fprintf(&b, "%ds", secs)
+	}
+	return b.String()
 }
 
 func abbr(n int64) string {

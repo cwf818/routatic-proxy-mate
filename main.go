@@ -78,9 +78,36 @@ func main() {
 
 func runTUI(stdin io.Reader, agg *stats.Aggregator, noColor bool, filter *output.ColorFilter) {
 	app := tui.New(agg, noColor, filter, Version)
+	// Ensure the reader is never left blocked waiting for the terminal to be
+	// released, even if Run() returns early with an error.
+	defer app.Release()
+
 	if err := app.Run(stdin); err != nil {
 		fmt.Fprintf(os.Stderr, "TUI error: %v\n", err)
 	}
+
+	// When the TUI was left via Ctrl+C, keep the pipe alive: the stdin reader
+	// keeps printing raw lines to the terminal until EOF (the server exited)
+	// or the user presses Ctrl+C again.  Only then print the final summary.
+	if app.StreamMode() {
+		if !noColor {
+			enableWindowsANSI()
+		}
+		fmt.Fprintln(os.Stderr, "(TUI closed — streaming raw output; press Ctrl+C again to exit)")
+		app.Release()
+
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+		defer signal.Stop(sigCh)
+
+		select {
+		case <-app.ReaderDone():
+			// EOF — the upstream server exited; full summary follows.
+		case <-sigCh:
+			fmt.Fprintln(os.Stderr, "\n(interrupted — partial summary follows)")
+		}
+	}
+
 	// After the TUI has exited, print the summary to stdout so the user
 	// sees it in the terminal scrollback.
 	if !noColor {

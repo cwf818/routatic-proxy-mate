@@ -56,7 +56,7 @@ When stdout is a terminal, the tool enters interactive TUI mode (powered by `tvi
 - **Log area**: scrollable view showing colorized log lines
 - **Stats header**: a dynamic summary bar pinned to the bottom — appears when log content overflows the visible area and the user has scrolled down
 - **Auto-scroll**: follows new content by default; pausing when scrolling up, resumes when reaching the bottom
-- **Keyboard**: `↑`/`↓`/`PgUp`/`PgDn` to scroll, `Ctrl+C` to exit
+- **Keyboard**: `↑`/`↓`/`PgUp`/`PgDn` to scroll. The first `Ctrl+C` closes the TUI and keeps the pipe alive, switching to streaming raw (colorized) log lines to the current terminal; a second `Ctrl+C` (or EOF) fully exits
 - **On exit**: full summary table is printed to stdout after the TUI closes
 
 ## Log Parsing

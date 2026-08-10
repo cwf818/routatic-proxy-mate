@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -44,6 +45,22 @@ type App struct {
 
 	// The main event loop signals this channel when Run() returns.
 	exited chan struct{}
+
+	// streamMode is true once the TUI has been left via Ctrl+C.  The stdin
+	// reader then switches from drawing to the log view to printing raw lines
+	// to stdout so the underlying pipe keeps flowing to the current terminal.
+	streamMode atomic.Bool
+
+	// released is closed by main once the terminal has been fully restored
+	// (and ANSI processing re-enabled), so the reader never writes to a
+	// half-restored console.  Guarded by releaseOnce.
+	released    chan struct{}
+	releaseOnce sync.Once
+
+	// readerDone is closed when the stdin reader reaches EOF.  Guarded by
+	// readerDoneOnce.
+	readerDone     chan struct{}
+	readerDoneOnce sync.Once
 }
 
 // New creates a new TUI application.  The aggregator is read periodically to
@@ -56,6 +73,8 @@ func New(agg *stats.Aggregator, noColor bool, filter *output.ColorFilter, versio
 		filter:      filter,
 		exited:      make(chan struct{}),
 		levelCounts: make(map[string]int64),
+		released:    make(chan struct{}),
+		readerDone:  make(chan struct{}),
 	}
 
 	// ---- stats bar (hidden until entries arrive) ----
@@ -90,10 +109,12 @@ func (a *App) Run(stdin io.Reader) error {
 	// Periodically check scroll offset and refresh stats.
 	go a.layoutLoop()
 
-	// Intercept Ctrl+C to shut down gracefully.
+	// Intercept Ctrl+C to leave the TUI while keeping the pipe alive: the
+	// stdin reader switches to streaming raw lines to stdout instead of the
+	// process exiting (a second Ctrl+C or EOF fully exits).
 	a.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		if event.Key() == tcell.KeyCtrlC {
-			a.Stop()
+			a.enterStreamMode()
 			return nil
 		}
 		return event
@@ -125,6 +146,34 @@ func (a *App) Done() <-chan struct{} {
 	return a.exited
 }
 
+// enterStreamMode switches the app out of the TUI: it marks the reader to
+// stream raw lines to stdout and stops the event loop so tcell restores the
+// console.  The process itself does not exit — main keeps the pipe alive.
+func (a *App) enterStreamMode() {
+	a.streamMode.Store(true)
+	a.Stop()
+}
+
+// StreamMode reports whether the TUI was left via Ctrl+C (so the reader is
+// streaming raw output to stdout) rather than EOF.
+func (a *App) StreamMode() bool {
+	return a.streamMode.Load()
+}
+
+// Release lets the stdin reader start writing streamed lines to stdout.  It
+// must be called only after the terminal has been fully restored (and ANSI
+// processing re-enabled) so no output lands in the alternate-screen buffer.
+// It is safe to call more than once.
+func (a *App) Release() {
+	a.releaseOnce.Do(func() { close(a.released) })
+}
+
+// ReaderDone returns a channel that is closed when the stdin reader reaches
+// EOF, i.e. the upstream process exited and the pipe is exhausted.
+func (a *App) ReaderDone() <-chan struct{} {
+	return a.readerDone
+}
+
 // ---------------------------------------------------------------------------
 // stdin reader
 // ---------------------------------------------------------------------------
@@ -136,6 +185,13 @@ func (a *App) readStdin(stdin io.Reader) {
 	// the app (and the console) down.
 	defer func() {
 		if r := recover(); r != nil {
+			if a.streamMode.Load() {
+				// The TUI is gone; report on stderr and make sure main's wait
+				// on ReaderDone() still completes.
+				fmt.Fprintf(os.Stderr, "reader panic: %v\n", r)
+				a.readerDoneOnce.Do(func() { close(a.readerDone) })
+				return
+			}
 			a.QueueUpdateDraw(func() {
 				fmt.Fprintf(a.logView, "\n[red]reader panic: %v\n", r)
 				a.done = true
@@ -154,8 +210,7 @@ func (a *App) readStdin(stdin io.Reader) {
 		entry, err := parser.ParseLine(line)
 		if err != nil || entry == nil {
 			if line != "" {
-				colored := output.ColorizeFallback(line, a.noColor, a.filter)
-				a.appendLine(colored)
+				a.emitLine(output.ColorizeFallback(line, a.noColor, a.filter))
 			}
 			continue
 		}
@@ -173,11 +228,10 @@ func (a *App) readStdin(stdin io.Reader) {
 			)
 		}
 
-
-			// Record attempting streaming model stats.
-			if parser.ClassifyMessage(entry.Message) == parser.MsgAttemptingStreaming {
-				a.agg.RecordAttempt(entry.Fields["model"])
-			}
+		// Record attempting streaming model stats.
+		if parser.ClassifyMessage(entry.Message) == parser.MsgAttemptingStreaming {
+			a.agg.RecordAttempt(entry.Fields["model"])
+		}
 		// Track per-level log counts for the summary bar.
 		if entry.Level != "" {
 			a.levelMu.Lock()
@@ -185,8 +239,34 @@ func (a *App) readStdin(stdin io.Reader) {
 			a.levelMu.Unlock()
 		}
 
-		colored := output.ColorizeRawLine(line, a.noColor, a.filter)
-		a.appendLine(colored)
+		a.emitLine(output.ColorizeRawLine(line, a.noColor, a.filter))
+	}
+
+	a.finishRead()
+}
+
+// emitLine routes a colourised line either to the TUI log view (default) or,
+// once the TUI has been left via Ctrl+C, to stdout so the underlying pipe
+// keeps flowing to the current terminal.
+func (a *App) emitLine(colored string) {
+	if a.streamMode.Load() {
+		// Wait until main has fully restored the terminal before touching
+		// stdout; once Release() has run this returns immediately.
+		<-a.released
+		fmt.Println(colored)
+		return
+	}
+	a.appendLine(colored)
+}
+
+// finishRead handles EOF from the pipe.  The reader always signals completion
+// so main can print the final summary; while the TUI is still active it also
+// shows the summary in the view before stopping.
+func (a *App) finishRead() {
+	a.readerDoneOnce.Do(func() { close(a.readerDone) })
+
+	if a.streamMode.Load() {
+		return
 	}
 
 	// EOF — append the full summary to the log view, then exit after a short
@@ -450,16 +530,35 @@ func fmtDuration(d time.Duration) string {
 	if d == 0 {
 		return "0"
 	}
-	switch {
-	case d >= time.Minute:
-		return fmt.Sprintf("%dm%ds", d/time.Minute, (d%time.Minute)/time.Second)
-	case d >= time.Second:
-		return fmt.Sprintf("%.1fs", float64(d)/float64(time.Second))
-	case d >= time.Millisecond:
-		return fmt.Sprintf("%dms", d/time.Millisecond)
-	default:
+	if d < time.Second {
+		if d >= time.Millisecond {
+			return fmt.Sprintf("%dms", d/time.Millisecond)
+		}
 		return fmt.Sprintf("%dµs", d/time.Microsecond)
 	}
+
+	days := int64(d / (24 * time.Hour))
+	d %= 24 * time.Hour
+	hours := int64(d / time.Hour)
+	d %= time.Hour
+	mins := int64(d / time.Minute)
+	d %= time.Minute
+	secs := int64(d / time.Second)
+
+	var b strings.Builder
+	if days > 0 {
+		fmt.Fprintf(&b, "%dd", days)
+	}
+	if hours > 0 {
+		fmt.Fprintf(&b, "%dh", hours)
+	}
+	if mins > 0 {
+		fmt.Fprintf(&b, "%dm", mins)
+	}
+	if secs > 0 || b.Len() == 0 {
+		fmt.Fprintf(&b, "%ds", secs)
+	}
+	return b.String()
 }
 
 func abbreviate(n int64) string {
