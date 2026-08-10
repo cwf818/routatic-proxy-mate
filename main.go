@@ -9,8 +9,10 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 	"unsafe"
 
+	"routatic-proxy-mate/internal/logfile"
 	"routatic-proxy-mate/internal/output"
 	"routatic-proxy-mate/internal/parser"
 	"routatic-proxy-mate/internal/stats"
@@ -63,12 +65,22 @@ func main() {
 
 	agg := stats.New()
 
+	// Raw log lines are persisted to a daily-rotating file in the temp
+	// directory (kept for 7 days).  A failure here only disables file logging;
+	// the pipe keeps flowing.
+	logWriter, logErr := logfile.New("routatic-mate", 7*24*time.Hour)
+	if logErr != nil {
+		fmt.Fprintf(os.Stderr, "(log file disabled: %v)\n", logErr)
+	} else {
+		defer logWriter.Close()
+	}
+
 	// When stdout is a terminal we use the TUI; otherwise fall back to the
 	// original line-by-line pipe filter.
 	if !*noTUI && isTerminal() {
-		runTUI(os.Stdin, agg, *noColor, filter)
+		runTUI(os.Stdin, agg, *noColor, filter, logWriter)
 	} else {
-		runLegacy(os.Stdin, agg, *noColor, filter)
+		runLegacy(os.Stdin, agg, *noColor, filter, logWriter)
 	}
 }
 
@@ -76,8 +88,9 @@ func main() {
 // TUI mode
 // ---------------------------------------------------------------------------
 
-func runTUI(stdin io.Reader, agg *stats.Aggregator, noColor bool, filter *output.ColorFilter) {
+func runTUI(stdin io.Reader, agg *stats.Aggregator, noColor bool, filter *output.ColorFilter, logWriter *logfile.Writer) {
 	app := tui.New(agg, noColor, filter, Version)
+	app.SetLogWriter(logWriter)
 	// Ensure the reader is never left blocked waiting for the terminal to be
 	// released, even if Run() returns early with an error.
 	defer app.Release()
@@ -120,7 +133,7 @@ func runTUI(stdin io.Reader, agg *stats.Aggregator, noColor bool, filter *output
 // Legacy pipe-filter mode
 // ---------------------------------------------------------------------------
 
-func runLegacy(stdin io.Reader, agg *stats.Aggregator, noColor bool, filter *output.ColorFilter) {
+func runLegacy(stdin io.Reader, agg *stats.Aggregator, noColor bool, filter *output.ColorFilter, logWriter *logfile.Writer) {
 	if !noColor {
 		enableWindowsANSI()
 	}
@@ -143,6 +156,12 @@ func runLegacy(stdin io.Reader, agg *stats.Aggregator, noColor bool, filter *out
 		scanner.Buffer(make([]byte, 64*1024), 256*1024)
 		for scanner.Scan() {
 			line := scanner.Text()
+
+			// Persist the raw line (best effort).
+			if logWriter != nil {
+				logWriter.WriteLine(line)
+			}
+
 			entry, err := parser.ParseLine(line)
 			if err != nil || entry == nil {
 				if line != "" {

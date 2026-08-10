@@ -17,10 +17,16 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
+	"routatic-proxy-mate/internal/logfile"
 	"routatic-proxy-mate/internal/output"
 	"routatic-proxy-mate/internal/parser"
 	"routatic-proxy-mate/internal/stats"
 )
+
+// maxLogLines caps the number of log lines retained in the scrollable view.
+// It bounds memory use and the cost of each full-screen redraw (tview
+// re-indexes the whole buffer on every draw once the cap is reached).
+const maxLogLines = 500
 
 // App wraps a tview Application providing a scrollable log viewer with a
 // stats bar pinned to the bottom that appears once streaming completed
@@ -34,6 +40,10 @@ type App struct {
 	agg       *stats.Aggregator
 	noColor   bool
 	filter    *output.ColorFilter
+
+	// logWriter persists raw log lines to a daily-rotating file.  nil disables
+	// file logging (e.g. temp dir not writable, or in tests).
+	logWriter *logfile.Writer
 
 	statsShown bool
 	done       bool
@@ -87,7 +97,7 @@ func New(agg *stats.Aggregator, noColor bool, filter *output.ColorFilter, versio
 	a.logView = tview.NewTextView()
 	a.logView.SetDynamicColors(true)
 	a.logView.SetScrollable(true)
-	a.logView.SetMaxLines(3000)
+	a.logView.SetMaxLines(maxLogLines)
 	a.logView.SetBorder(true)
 	a.logView.SetTitle(" cwf818/routatic-proxy-mate " + version + " ")
 	a.logView.SetTitleAlign(tview.AlignLeft)
@@ -99,6 +109,13 @@ func New(agg *stats.Aggregator, noColor bool, filter *output.ColorFilter, versio
 	a.flex.AddItem(a.statsView, 0, 0, false) // zero height until shown
 
 	return a
+}
+
+// SetLogWriter configures the raw-line file writer.  Every raw log line is
+// then persisted (in both TUI and Ctrl+C stream mode), independent of what is
+// shown on screen.  Pass nil to disable.  Must be called before Run.
+func (a *App) SetLogWriter(w *logfile.Writer) {
+	a.logWriter = w
 }
 
 // Run starts the TUI.  It reads from stdin in a background goroutine and
@@ -206,6 +223,11 @@ func (a *App) readStdin(stdin io.Reader) {
 
 	for scanner.Scan() {
 		line := scanner.Text()
+
+		// Persist the raw line to the rotating log file (best effort).
+		if a.logWriter != nil {
+			a.logWriter.WriteLine(line)
+		}
 
 		entry, err := parser.ParseLine(line)
 		if err != nil || entry == nil {
