@@ -9,6 +9,8 @@
 
 ## 安装
 
+下载预编译 Windows 版本：[最新 Release](https://github.com/cwf818/routatic-proxy-mate/releases/latest)，或通过 Go 安装：
+
 ```bash
 go install github.com/cwf818/routatic-proxy-mate@latest
 ```
@@ -28,6 +30,8 @@ go build -o routatic-proxy-mate.exe .
 ```bash
 routatic-proxy serve | routatic-proxy-mate
 ```
+
+> **PowerShell 用户**：建议使用 `cmd /c` 运行以确保管道正确传递 — `cmd /c "routatic-proxy serve | routatic-proxy-mate"`
 
 传统模式（无 TUI）：
 

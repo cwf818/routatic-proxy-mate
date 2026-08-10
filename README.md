@@ -9,6 +9,8 @@
 
 ## Installation
 
+Download the pre-built Windows binary from the [latest release](https://github.com/cwf818/routatic-proxy-mate/releases/latest), or install via Go:
+
 ```bash
 go install github.com/cwf818/routatic-proxy-mate@latest
 ```
@@ -28,6 +30,8 @@ Pipe mode (auto-enables TUI):
 ```bash
 routatic-proxy serve | routatic-proxy-mate
 ```
+
+> **PowerShell users**: run with `cmd /c` to ensure correct piping — `cmd /c "routatic-proxy serve | routatic-proxy-mate"`
 
 Legacy mode (no TUI):
 
