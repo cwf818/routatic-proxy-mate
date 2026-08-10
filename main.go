@@ -126,6 +126,7 @@ func runLegacy(stdin io.Reader, agg *stats.Aggregator, noColor bool, filter *out
 					entry.Fields["output_tokens"],
 					entry.Fields["cache_read_input_tokens"],
 					entry.Fields["cache_creation_input_tokens"],
+					entry.Time,
 				)
 			}
 

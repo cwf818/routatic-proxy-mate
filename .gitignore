@@ -19,6 +19,9 @@ go.work.sum
 *.swp
 *.swo
 
+# Examples
+examples/
+
 # OS
 Thumbs.db
 .DS_Store

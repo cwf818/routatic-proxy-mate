@@ -61,12 +61,14 @@ func (s *StreamingStats) AvgOutSpeed() float64 {
 type Aggregator struct {
 	models map[string]*StreamingStats
 	total  StreamingStats
+	days   map[string]*StreamingStats // key: "2006-01-02"
 }
 
 // New creates a new Aggregator.
 func New() *Aggregator {
 	return &Aggregator{
 		models: make(map[string]*StreamingStats),
+		days:   make(map[string]*StreamingStats),
 		total: StreamingStats{
 			MinLatency:  math.MaxInt64,
 			MinOutSpeed: math.MaxFloat64,
@@ -94,7 +96,7 @@ func (a *Aggregator) RecordAttempt(model string) {
 
 // Record records a streaming completed event.
 func (a *Aggregator) Record(model, latencyStr, inputTokensStr, outputTokensStr,
-	cacheReadStr, cacheCreateStr string) {
+	cacheReadStr, cacheCreateStr string, t time.Time) {
 
 	latency, _ := time.ParseDuration(latencyStr)
 	inputTokens := parseInt(inputTokensStr)
@@ -162,6 +164,21 @@ func (a *Aggregator) Record(model, latencyStr, inputTokensStr, outputTokensStr,
 			a.total.MinOutSpeed = speed
 		}
 	}
+
+	// Record daily stats.
+	if !t.IsZero() {
+		dateKey := t.Format("2006-01-02")
+		d, ok := a.days[dateKey]
+		if !ok {
+			d = &StreamingStats{}
+			a.days[dateKey] = d
+		}
+		d.Requests++
+		d.TotalInputTokens += inputTokens
+		d.TotalOutputTokens += outputTokens
+		d.TotalCacheReadTokens += cacheRead
+		d.TotalCacheCreateTokens += cacheCreate
+	}
 }
 
 // Models returns a sorted list of model names.
@@ -182,6 +199,21 @@ func (a *Aggregator) ForModel(model string) *StreamingStats {
 // Total returns the aggregate stats across all models.
 func (a *Aggregator) Total() *StreamingStats {
 	return a.total.Clone()
+}
+
+// Today returns the stats for the current calendar day.  Returns an empty
+// StreamingStats when no data has been recorded for today.
+func (a *Aggregator) Today() *StreamingStats {
+	dateKey := time.Now().Format("2006-01-02")
+	return a.Daily(dateKey)
+}
+
+// Daily returns the stats for the given date (format "2006-01-02").
+func (a *Aggregator) Daily(date string) *StreamingStats {
+	if s, ok := a.days[date]; ok {
+		return s.Clone()
+	}
+	return &StreamingStats{}
 }
 
 func parseInt(s string) int64 {

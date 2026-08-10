@@ -65,6 +65,7 @@ func New(agg *stats.Aggregator, noColor bool, filter *output.ColorFilter, versio
 	a.logView = tview.NewTextView()
 	a.logView.SetDynamicColors(true)
 	a.logView.SetScrollable(true)
+	a.logView.SetMaxLines(3000)
 	a.logView.SetBorder(true)
 	a.logView.SetTitle(" cwf818/routatic-proxy-mate " + version + " ")
 	a.logView.SetTitleAlign(tview.AlignLeft)
@@ -134,6 +135,7 @@ func (a *App) readStdin(stdin io.Reader) {
 				entry.Fields["output_tokens"],
 				entry.Fields["cache_read_input_tokens"],
 				entry.Fields["cache_creation_input_tokens"],
+				entry.Time,
 			)
 		}
 
@@ -242,41 +244,43 @@ func (a *App) buildStatsText() string {
 	}
 
 	tt := a.agg.Total()
+	today := a.agg.Today()
 
 	var b strings.Builder
 
-	// Line 1: aggregated counts.
+	// Line 1: today/cumulative pairs for counts and token sums.
 	b.WriteString(fmt.Sprintf(
-		"[white::b]Streaming Completed: [lime]%d  "+
-			"[white]|  Total: [lime]%s  "+
-			"[white]|  In: [lime]%s  "+
-			"[white]|  Out: [lime]%s  "+
-			"[white]|  Cache Rd: [lime]%s  "+
-			"[white]|  Cache Cr: [lime]%s",
-		tt.Requests,
-		fmtDuration(tt.TotalLatency),
-		abbreviate(tt.TotalInputTokens),
-		abbreviate(tt.TotalOutputTokens),
-		abbreviate(tt.TotalCacheReadTokens),
-		abbreviate(tt.TotalCacheCreateTokens),
+		"[white::b]Streaming Completed: [lime]%s/%s  "+
+			"[white]|  In: [lime]%s/%s  "+
+			"[white]|  Out: [lime]%s/%s  "+
+			"[white]|  Cache Rd: [lime]%s/%s  "+
+			"[white]|  Cache Cr: [lime]%s/%s",
+		abbreviate(int64(today.Requests)), abbreviate(int64(tt.Requests)),
+		abbreviate(today.TotalInputTokens), abbreviate(tt.TotalInputTokens),
+		abbreviate(today.TotalOutputTokens), abbreviate(tt.TotalOutputTokens),
+		abbreviate(today.TotalCacheReadTokens), abbreviate(tt.TotalCacheReadTokens),
+		abbreviate(today.TotalCacheCreateTokens), abbreviate(tt.TotalCacheCreateTokens),
 	))
 	b.WriteByte('\n')
 
-	// Line 2: OutSpeed with band colours for Current and Avg.
+	// Line 2: OutSpeed with band colours for Current and Avg + Total at end.
 	b.WriteString(fmt.Sprintf(
 		"[white::b]OutSpeed: Current: [%s]%.1f/s  "+
 			"[white]|  Avg: [%s]%.1f/s  "+
 			"[white]|  Max: [lime]%.1f/s  "+
-			"[white]|  Min: [lime]%.1f/s",
+			"[white]|  Min: [lime]%.1f/s  "+
+			"[white]|  ApiTime: [lime]%s",
 		speedTag(tt.CurrentOutSpeed), tt.CurrentOutSpeed,
 		speedTag(tt.AvgOutSpeed()), tt.AvgOutSpeed(),
 		tt.MaxOutSpeed,
 		tt.MinOutSpeed,
+		fmtDuration(tt.TotalLatency),
 	))
 	b.WriteByte('\n')
 
-	// Line 3: averages, cache hit rate, and non-INFO count.
-	ch := cacheHitRate(tt.TotalCacheReadTokens, tt.TotalCacheCreateTokens)
+	// Line 3: averages, cache hit rate and non-INFO level counts.
+	chToday := cacheHitRate(today.TotalCacheReadTokens, today.TotalCacheCreateTokens)
+	chTotal := cacheHitRate(tt.TotalCacheReadTokens, tt.TotalCacheCreateTokens)
 	// Gather non-INFO level counts.
 	a.levelMu.Lock()
 	var levelPairs []string
@@ -294,11 +298,11 @@ func (a *App) buildStatsText() string {
 	b.WriteString(fmt.Sprintf(
 		"[white::b]Avg Latency: [lime]%s  "+
 			"[white]|  Avg Out/Req: [lime]%s  "+
-			"[white]|  Cache Hit: [%s]%.1f%%"+
+			"[white]|  Hit: [%s]%.1f%%/%.1f%%"+
 			"%s",
 		fmtDuration(tt.AvgLatency()),
 		abbreviate(int64(float64(tt.TotalOutputTokens)/float64(tt.Requests))),
-		cacheHitTag(ch), ch,
+		cacheHitTag(chTotal), chToday, chTotal,
 		levelStr,
 	))
 	b.WriteByte('\n')
@@ -348,7 +352,7 @@ func (a *App) showFinalSummary() {
 	line("  [cyan::b]%-*s[white::b] %*s %*s %*s %*s %*s %*s %*s %*s %*s %*s\n",
 		wModel, "Model",
 		wReq, "OK/Att",
-		wDur, "Total",
+		wDur, "ApiTime",
 		wDur, "Avg",
 		wNum, "OutTok",
 		wAbbr, "CacheRd",
@@ -363,7 +367,7 @@ func (a *App) showFinalSummary() {
 	for _, m := range models {
 		s := a.agg.ForModel(m)
 		ch := cacheHitRate(s.TotalCacheReadTokens, s.TotalCacheCreateTokens)
-		line("  [yellow]%-*s[white] %*s %*s %*s %*d %*s %*s %*s %*s %*s %*s\n",
+		line("  [yellow]%-*s[white] %*s %*s %*s %*d %*s %*s %*s [%s]%*s[white] [%s]%*s[white] [%s]%*s[white]\n",
 			wModel, truncate(m, wModel),
 			wReq, fmt.Sprintf("%d/%d", s.Requests, s.Attempts),
 			wDur, fmtDuration(s.TotalLatency),
@@ -373,14 +377,14 @@ func (a *App) showFinalSummary() {
 			wAbbr, abbreviate(s.TotalCacheCreateTokens),
 			wPct, fmtPct(ch),
 			speedTag(saneSpeed(s.AvgOutSpeed())), wSpd, fmtSpeed(saneSpeed(s.AvgOutSpeed())),
-			wSpd, fmtSpeed(saneSpeed(s.MaxOutSpeed)),
-			wSpd, fmtSpeed(saneSpeed(s.MinOutSpeed)),
+			speedTag(saneSpeed(s.MaxOutSpeed)), wSpd, fmtSpeed(saneSpeed(s.MaxOutSpeed)),
+			speedTag(saneSpeed(s.MinOutSpeed)), wSpd, fmtSpeed(saneSpeed(s.MinOutSpeed)),
 		)
 	}
 
 	line("  [gray::d]%s\n", strings.Repeat("─", 145))
 	ch := cacheHitRate(tt.TotalCacheReadTokens, tt.TotalCacheCreateTokens)
-	line("  [yellow]%-*s[white] %*s %*s %*s %*d %*s %*s %*s %*s %*s %*s\n",
+	line("  [yellow]%-*s[white] %*s %*s %*s %*d %*s %*s %*s [%s]%*s[white] [%s]%*s[white] [%s]%*s[white]\n",
 		wModel, "TOTAL",
 		wReq, fmt.Sprintf("%d/%d", tt.Requests, tt.Attempts),
 		wDur, fmtDuration(tt.TotalLatency),
@@ -390,8 +394,8 @@ func (a *App) showFinalSummary() {
 		wAbbr, abbreviate(tt.TotalCacheCreateTokens),
 		wPct, fmtPct(ch),
 		speedTag(saneSpeed(tt.AvgOutSpeed())), wSpd, fmtSpeed(saneSpeed(tt.AvgOutSpeed())),
-		wSpd, fmtSpeed(saneSpeed(tt.MaxOutSpeed)),
-		wSpd, fmtSpeed(saneSpeed(tt.MinOutSpeed)),
+		speedTag(saneSpeed(tt.MaxOutSpeed)), wSpd, fmtSpeed(saneSpeed(tt.MaxOutSpeed)),
+		speedTag(saneSpeed(tt.MinOutSpeed)), wSpd, fmtSpeed(saneSpeed(tt.MinOutSpeed)),
 	)
 
 	fmt.Fprint(a.logView, tview.Escape(b.String()))

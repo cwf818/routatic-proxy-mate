@@ -268,7 +268,7 @@ func WriteSummary(a *stats.Aggregator, noColor bool) {
 	sb.WriteString("  ")
 	sb.WriteString(header("Model", wModel))
 	sb.WriteString(header("OK/Att", wReq))
-	sb.WriteString(header("Total", wDur))
+	sb.WriteString(header("ApiTime", wDur))
 	sb.WriteString(header("Avg", wDur))
 	sb.WriteString(header("OutTok", wNum))
 	sb.WriteString(header("CacheRd", wAbbr))
