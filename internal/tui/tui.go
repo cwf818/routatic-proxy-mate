@@ -134,6 +134,10 @@ func (a *App) Run(stdin io.Reader) error {
 			a.enterStreamMode()
 			return nil
 		}
+		if event.Key() == tcell.KeyRune && event.Rune() == 'c' {
+			a.clearLogView()
+			return nil
+		}
 		return event
 	})
 
@@ -322,6 +326,17 @@ func (a *App) appendLine(line string) {
 		}
 		a.updateLayout()
 	})
+}
+
+// clearLogView empties the scrollable log view and appends a hint line so the
+// user knows the screen was cleared. The stats bar and aggregation are
+// unaffected. It runs on the tview UI goroutine (called from the input
+// capture), so it may touch the view directly.
+func (a *App) clearLogView() {
+	a.logView.Clear()
+	fmt.Fprint(a.logView, "[gray]—— screen cleared ——\n")
+	a.logView.ScrollToEnd()
+	a.updateLayout()
 }
 
 // ---------------------------------------------------------------------------
