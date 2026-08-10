@@ -20,7 +20,7 @@ import (
 )
 
 // Version is the current release version.
-const Version = "v0.2.1"
+const Version = "v0.2.2"
 
 // stringSlice is a flag.Value that accumulates multiple string values.
 type stringSlice []string
