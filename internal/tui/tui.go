@@ -263,16 +263,23 @@ func (a *App) readStdin(stdin io.Reader) {
 			a.agg.RecordAttempt(entry.Fields["model"])
 		}
 		// Track per-level log counts for the summary bar.
-		if entry.Level != "" {
-			a.levelMu.Lock()
-			a.levelCounts[entry.Level]++
-			a.levelMu.Unlock()
-		}
+		a.recordLevel(entry.Level)
 
 		a.emitLine(output.ColorizeRawLine(line, a.noColor, a.filter))
 	}
 
 	a.finishRead()
+}
+
+// recordLevel tallies a log level for the summary bar.  The level is
+// normalised to upper case so that info and INFO (etc.) share one bucket.
+func (a *App) recordLevel(lv string) {
+	if lv == "" {
+		return
+	}
+	a.levelMu.Lock()
+	a.levelCounts[strings.ToUpper(lv)]++
+	a.levelMu.Unlock()
 }
 
 // emitLine routes a colourised line either to the TUI log view (default) or,
@@ -438,13 +445,16 @@ func (a *App) buildStatsText() string {
 	// Line 3: averages, cache hit rate and non-INFO level counts.
 	chToday := cacheHitRate(today.TotalCacheReadTokens, today.TotalCacheCreateTokens)
 	chTotal := cacheHitRate(tt.TotalCacheReadTokens, tt.TotalCacheCreateTokens)
-	// Gather non-INFO level counts.
+	// Gather non-INFO level counts.  Each label and its count share one
+	// colour per level: ERROR red, everything else yellow.
 	a.levelMu.Lock()
 	var levelPairs []string
 	for lv, cnt := range a.levelCounts {
-		if lv != "INFO" {
-			levelPairs = append(levelPairs, fmt.Sprintf("[yellow]%s[white]: [lime]%d", lv, cnt))
+		if lv == "INFO" {
+			continue
 		}
+		tag := levelTag(lv)
+		levelPairs = append(levelPairs, fmt.Sprintf("[%s]%s[white]: [%s]%d", tag, lv, tag, cnt))
 	}
 	a.levelMu.Unlock()
 	var levelStr string
@@ -651,6 +661,15 @@ func speedTag(speed float64) string {
 	default:
 		return "lime"
 	}
+}
+
+// levelTag returns the tview colour tag for a log level label in the stats
+// bar.  ERROR is red; all other levels (WARN included) are yellow.
+func levelTag(lv string) string {
+	if lv == "ERROR" {
+		return "red"
+	}
+	return "yellow"
 }
 
 // cacheHitRate returns the cache hit percentage:

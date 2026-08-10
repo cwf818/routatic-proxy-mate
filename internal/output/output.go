@@ -41,9 +41,10 @@ func keyColor(key string) string {
 // Only level and latency get fixed semantic colors; numeric values get Cyan/White;
 // time values get Dim; everything else defaults to a deterministic hash-based color.
 func valueColor(key, value string) string {
-	// 1. Level — semantic color.
+	// 1. Level — semantic color, matched case-insensitively so that e.g.
+	// error and ERROR both render red.
 	if key == "level" {
-		switch value {
+		switch strings.ToUpper(value) {
 		case "WARN":
 			return Yellow
 		case "ERROR":
