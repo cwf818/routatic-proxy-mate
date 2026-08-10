@@ -3,6 +3,7 @@ package stats
 import (
 	"math"
 	"sort"
+	"sync"
 	"time"
 )
 
@@ -58,7 +59,13 @@ func (s *StreamingStats) AvgOutSpeed() float64 {
 }
 
 // Aggregator collects streaming-completed events.
+//
+// The aggregator is shared between the stdin-reader goroutine (which calls
+// Record/RecordAttempt) and the TUI event-loop goroutine (which calls
+// Models/Total/ForModel/Today to build the stats bar).  All access is
+// guarded by mu so the two goroutines never touch the maps concurrently.
 type Aggregator struct {
+	mu     sync.Mutex
 	models map[string]*StreamingStats
 	total  StreamingStats
 	days   map[string]*StreamingStats // key: "2006-01-02"
@@ -82,6 +89,8 @@ func (a *Aggregator) RecordAttempt(model string) {
 	if model == "" {
 		return
 	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	s := a.models[model]
 	if s == nil {
 		s = &StreamingStats{
@@ -104,6 +113,8 @@ func (a *Aggregator) Record(model, latencyStr, inputTokensStr, outputTokensStr,
 	cacheRead := parseInt(cacheReadStr)
 	cacheCreate := parseInt(cacheCreateStr)
 
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	s := a.models[model]
 	if s == nil {
 		s = &StreamingStats{
@@ -183,6 +194,8 @@ func (a *Aggregator) Record(model, latencyStr, inputTokensStr, outputTokensStr,
 
 // Models returns a sorted list of model names.
 func (a *Aggregator) Models() []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	names := make([]string, 0, len(a.models))
 	for n := range a.models {
 		names = append(names, n)
@@ -193,11 +206,15 @@ func (a *Aggregator) Models() []string {
 
 // ForModel returns stats for a specific model.
 func (a *Aggregator) ForModel(model string) *StreamingStats {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	return a.models[model].Clone()
 }
 
 // Total returns the aggregate stats across all models.
 func (a *Aggregator) Total() *StreamingStats {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	return a.total.Clone()
 }
 
@@ -210,6 +227,8 @@ func (a *Aggregator) Today() *StreamingStats {
 
 // Daily returns the stats for the given date (format "2006-01-02").
 func (a *Aggregator) Daily(date string) *StreamingStats {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if s, ok := a.days[date]; ok {
 		return s.Clone()
 	}

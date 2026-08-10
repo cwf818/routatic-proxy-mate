@@ -104,6 +104,13 @@ func runLegacy(stdin io.Reader, agg *stats.Aggregator, noColor bool, filter *out
 
 	done := make(chan struct{})
 	go func() {
+		// A panic in this goroutine must not kill the process mid-stream;
+		// report it and carry on rather than aborting the pipe.
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Fprintf(os.Stderr, "(reader panic: %v)\n", r)
+			}
+		}()
 		scanner := bufio.NewScanner(stdin)
 		// Increase buffer for long lines (errors may be verbose).
 		scanner.Buffer(make([]byte, 64*1024), 256*1024)

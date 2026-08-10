@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"hash/fnv"
 	"io"
+	"os"
+	"os/signal"
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
@@ -96,6 +99,22 @@ func (a *App) Run(stdin io.Reader) error {
 		return event
 	})
 
+	// Forward OS signals to a graceful Stop so tcell.Fini() restores the
+	// console modes.  Without this, a SIGTERM (e.g. from killing the process
+	// or the terminal tab closing on Windows) would terminate the process
+	// while the console is still in the alternate-screen buffer / raw mode,
+	// leaving the terminal looking dead.
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
+	go func() {
+		select {
+		case <-sigCh:
+			a.Stop()
+		case <-a.exited:
+		}
+	}()
+
 	err := a.SetRoot(a.flex, true).Run()
 	close(a.exited)
 	return err
@@ -111,6 +130,21 @@ func (a *App) Done() <-chan struct{} {
 // ---------------------------------------------------------------------------
 
 func (a *App) readStdin(stdin io.Reader) {
+	// A panic in this goroutine would crash the whole process while the
+	// console is still in the alternate-screen buffer / raw mode, leaving
+	// the terminal looking dead.  Recover so a single bad line can't take
+	// the app (and the console) down.
+	defer func() {
+		if r := recover(); r != nil {
+			a.QueueUpdateDraw(func() {
+				fmt.Fprintf(a.logView, "\n[red]reader panic: %v\n", r)
+				a.done = true
+			})
+			time.Sleep(2 * time.Second)
+			a.Stop()
+		}
+	}()
+
 	scanner := bufio.NewScanner(stdin)
 	scanner.Buffer(make([]byte, 64*1024), 256*1024)
 
