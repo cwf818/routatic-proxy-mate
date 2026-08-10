@@ -160,6 +160,7 @@ var knownKeys = map[string]bool{
 	"attempt":                     true,
 	"total":                       true,
 	"remaining":                   true,
+	"reason":                      true,
 	"status":                      true,
 	"message":                     true,
 	"path":                        true,
